@@ -1,0 +1,4 @@
+# Dependencies are declared in pyproject.toml.
+# Runtime deps live in [project.dependencies]; dev tooling in [project.optional-dependencies].dev.
+# This file exists so the documented `pip install -r requirements.txt` flow keeps working:
+-e .[dev]
