@@ -1,0 +1,21 @@
+# DevWorkWire project configuration — example.
+#
+# Copy this file to `devworkwire.yml` in the directory where you run `dwire`
+# and adjust it for your project. Secrets (API tokens, emails) never belong
+# here; they are read from environment variables (see .env.example).
+
+# Provider adapter serving this project. Phase 1 supports: jira
+provider: jira
+
+# Key of the project in the tracker that work items are loaded into.
+project_key: PROJ
+
+# Mapping of DevWorkWire fields to provider-specific custom fields.
+# Only values that differ from the defaults need to be listed.
+field_mappings:
+  story_points: customfield_10011
+
+# Optional: override provider transition names for edge cases
+# (DevWorkWire name -> name configured in your project).
+# transition_overrides:
+#   "In Review": "Peer Review"
