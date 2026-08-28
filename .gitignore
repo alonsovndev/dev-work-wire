@@ -16,6 +16,9 @@ htmlcov/
 # Env / secrets (keep .env.example tracked)
 .env
 
+# Local project config
+settings.yml
+
 # Logs
 *.log
 
