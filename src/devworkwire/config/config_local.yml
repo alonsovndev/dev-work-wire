@@ -1,0 +1,21 @@
+app:
+  name: "DevWorkWire"
+  version: "0.1.0"
+
+logging:
+  level: "debug"
+  format_type: "text"
+  console:
+    enabled: true
+    colored: true
+
+jira:
+  base_url: !ENV ${JIRA_BASE_URL}
+  api_token: !ENV ${JIRA_API_TOKEN}
+  email: !ENV ${JIRA_EMAIL}
+  api_version: "3"
+  timeout: 30
+  max_retries: 3
+  rate_limit:
+    requests_per_minute: 60
+
