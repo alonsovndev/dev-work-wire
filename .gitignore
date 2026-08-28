@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Env / secrets (keep .env.example tracked)
+.env
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+*.swp
