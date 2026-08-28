@@ -1,0 +1,5 @@
+# Dogfood configuration: this repository's own DevWorkWire project.
+provider: jira
+project_key: OPH
+field_mappings:
+  story_points: customfield_10011

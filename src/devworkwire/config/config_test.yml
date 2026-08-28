@@ -1,0 +1,23 @@
+app:
+  name: "DevWorkWire"
+  version: "0.1.0"
+
+logging:
+  level: "info"
+  format_type: "text"
+  console:
+    enabled: true
+    colored: true
+
+jira:
+  base_url: "https://your-jira-instance.atlassian.net"
+  api_token: "test_token_123"
+  email: "test@gmail.com"
+  api_version: "3"
+  timeout: 10
+  max_retries: 1
+  rate_limit:
+    requests_per_minute: 100
+  projects:
+    default: "TEST"
+
