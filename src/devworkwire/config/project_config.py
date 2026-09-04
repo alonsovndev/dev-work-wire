@@ -2,7 +2,7 @@
 
 Declares which provider serves the project, the project key, field mappings,
 and transition-name overrides. Secrets never live here; they stay in
-environment variables consumed by the provider settings (e.g. ``JiraSettings``).
+environment variables consumed via ``AppConfig``.
 """
 
 from dataclasses import dataclass, field
@@ -11,7 +11,7 @@ from typing import Dict, Optional
 
 from pyaml_env import parse_config
 
-from devworkwire.core.domain.exceptions import BusinessRuleViolationException
+from devworkwire.core.domain.exceptions import BusinessRuleViolation
 
 CONFIG_FILE_NAME = "devworkwire.yml"
 SUPPORTED_PROVIDERS = ("jira",)
@@ -42,15 +42,14 @@ class ProjectConfig:
             A validated ProjectConfig.
 
         Raises:
-            BusinessRuleViolationException: If the file is missing or the
+            BusinessRuleViolation: If the file is missing or the
                 content is incomplete/unsupported.
         """
         config_path = Path(path) if path is not None else Path.cwd() / CONFIG_FILE_NAME
         if not config_path.exists():
-            raise BusinessRuleViolationException(
-                f"Project configuration not found: {config_path}",
-                details="Copy devworkwire.example.yml to "
-                f"{CONFIG_FILE_NAME} and adjust it for your project.",
+            raise BusinessRuleViolation(
+                f"Project configuration not found: {config_path}. "
+                f"Copy devworkwire.example.yml to {CONFIG_FILE_NAME} and adjust it for your project."
             )
 
         raw = parse_config(path=str(config_path)) or {}
@@ -58,20 +57,17 @@ class ProjectConfig:
         project_key = raw.get("project_key")
 
         if not provider:
-            raise BusinessRuleViolationException(
-                "Project configuration is incomplete",
-                details=f"'provider' is required in {CONFIG_FILE_NAME} "
-                f"(supported: {', '.join(SUPPORTED_PROVIDERS)})",
+            raise BusinessRuleViolation(
+                "Project configuration is incomplete: 'provider' is required in "
+                f"{CONFIG_FILE_NAME} (supported: {', '.join(SUPPORTED_PROVIDERS)})"
             )
         if provider not in SUPPORTED_PROVIDERS:
-            raise BusinessRuleViolationException(
-                f"Unsupported provider: {provider}",
-                details=f"supported providers: {', '.join(SUPPORTED_PROVIDERS)}",
+            raise BusinessRuleViolation(
+                f"Unsupported provider: {provider} (supported: {', '.join(SUPPORTED_PROVIDERS)})"
             )
         if not project_key:
-            raise BusinessRuleViolationException(
-                "Project configuration is incomplete",
-                details=f"'project_key' is required in {CONFIG_FILE_NAME}",
+            raise BusinessRuleViolation(
+                f"Project configuration is incomplete: 'project_key' is required in {CONFIG_FILE_NAME}"
             )
 
         field_mappings = {
