@@ -6,6 +6,7 @@ from InquirerPy import inquirer
 from devworkwire.core.composition import Container
 from devworkwire.features.import_.application.markdown_parser import parse_epic_markdown
 from devworkwire.presentation.cli.banner import print_banner
+from devworkwire.presentation.cli.epic_panel import render_epic_panel
 
 app = typer.Typer()
 container = Container()
@@ -39,8 +40,7 @@ async def _fetch_epic(key: str) -> None:
         provider = container.get_jira_provider()
         epic = await provider.fetch_epic(key)
         if epic:
-            typer.echo(f"Epic Found: {epic.title}")
-            typer.echo(f"Description: {epic.description}")
+            typer.secho(render_epic_panel(epic), fg=typer.colors.CYAN)
         else:
             typer.echo(f"Epic {key} not found.")
     except Exception as e:

@@ -1,4 +1,3 @@
-import json
 from typing import Optional
 
 import backoff
@@ -13,6 +12,33 @@ def _is_transient_error(error: Exception) -> bool:
     if isinstance(error, httpx.HTTPStatusError):
         return error.response.status_code in {408, 429, 500, 502, 503, 504}
     return isinstance(error, (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout))
+
+
+def _adf_text(node: dict) -> str:
+    """Concatenated text of an ADF ``text`` node and any nested text nodes."""
+    if node.get("type") == "text":
+        return node.get("text", "")
+    return "".join(_adf_text(child) for child in node.get("content", []))
+
+
+def _adf_to_text(doc: dict) -> str:
+    """Renders an Atlassian Document Format doc as plain, readable text.
+
+    Handles the node types Jira commonly uses in Epic descriptions
+    (paragraphs and bullet/ordered lists); unsupported node types are
+    skipped rather than raising.
+    """
+    blocks = []
+    for node in doc.get("content", []):
+        node_type = node.get("type")
+        if node_type == "paragraph":
+            blocks.append(_adf_text(node))
+        elif node_type in ("bulletList", "orderedList"):
+            items = [
+                f"- {_adf_text(item)}" for item in node.get("content", [])
+            ]
+            blocks.append("\n".join(items))
+    return "\n\n".join(block for block in blocks if block)
 
 
 class JiraProvider(WorkItemProvider):
@@ -51,7 +77,7 @@ class JiraProvider(WorkItemProvider):
 
             # Jira v3 returns description as an Atlassian Document Format (ADF) dict.
             desc_field = fields.get("description", {})
-            description = json.dumps(desc_field) if isinstance(desc_field, dict) else str(desc_field)
+            description = _adf_to_text(desc_field) if isinstance(desc_field, dict) else str(desc_field)
 
             priority_name = fields.get("priority", {}).get("name")
             priority = Priority.from_jira_name(priority_name) if priority_name else None
