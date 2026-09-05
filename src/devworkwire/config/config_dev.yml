@@ -3,7 +3,7 @@ app:
   version: "0.1.0"
 
 logging:
-  level: DEBUG
+  level: INFO
   format_type: "text"
   console:
     enabled: true

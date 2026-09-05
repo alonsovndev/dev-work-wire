@@ -1,4 +1,6 @@
 import asyncio
+import os
+import sys
 
 import typer
 from InquirerPy import inquirer
@@ -57,10 +59,19 @@ async def _create_epic(path: str) -> None:
         typer.echo(f"Error creating epic: {e}", err=True)
 
 
+def _clear_screen() -> None:
+    if os.name == "nt":
+        os.system("cls")
+    else:
+        sys.stdout.write("\033[2J\033[1;1H")
+        sys.stdout.flush()
+
+
 def _run_interactive_menu() -> None:
     """Keyboard-navigable main menu, shown when `dwire` is run with no subcommand."""
-    print_banner()
     while True:
+        _clear_screen()
+        print_banner()
         choice = inquirer.select(
             message="Choose an action:",
             choices=[_RETRIEVE_EPIC, _CREATE_EPIC, _EXIT],
@@ -71,9 +82,15 @@ def _run_interactive_menu() -> None:
         if choice == _RETRIEVE_EPIC:
             key = inquirer.text(message="Jira issue key (e.g. PROJ-123):").execute()
             asyncio.run(_fetch_epic(key))
+            inquirer.confirm(
+                message="Press Enter to return to the menu...", default=True
+            ).execute()
         elif choice == _CREATE_EPIC:
             path = inquirer.filepath(message="Path to epic markdown file:").execute()
             asyncio.run(_create_epic(path))
+            inquirer.confirm(
+                message="Press Enter to return to the menu...", default=True
+            ).execute()
 
 
 if __name__ == "__main__":

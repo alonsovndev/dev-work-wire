@@ -120,13 +120,18 @@ class TestInitializeLogging:
         assert isinstance(root.handlers[0].formatter, log_config._PlainFormatter)
 
     def test_json_format_is_the_default_formatter(self):
-        log_config.initialize_logging(level="INFO")
+        log_config.initialize_logging(level="DEBUG")
 
         assert isinstance(
             logging.getLogger().handlers[0].formatter, log_config._JsonFormatter
         )
 
     def test_console_disabled_removes_handlers(self):
-        log_config.initialize_logging(console_enabled=False)
+        log_config.initialize_logging(level="DEBUG", console_enabled=False)
+
+        assert logging.getLogger().handlers == []
+
+    def test_non_debug_level_removes_handlers(self):
+        log_config.initialize_logging(level="INFO")
 
         assert logging.getLogger().handlers == []

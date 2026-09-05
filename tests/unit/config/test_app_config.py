@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import pytest
 from devworkwire.config.app_config import AppConfig
+from devworkwire.config.paths import Paths
 
 
 @pytest.fixture(autouse=True)
@@ -17,16 +20,17 @@ def test_instance_returns_singleton():
 
 def test_default_environment_loads_local_config(monkeypatch):
     monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setattr(Paths, "ENV_FILE_PATH", Path("/nonexistent/.env"))
     config = AppConfig.instance()
     assert config.env == "local"
-    assert config.get_config("logging.level") == "debug"
+    assert config.get_config("logging.level") == "DEBUG"
 
 
 def test_app_env_test_loads_test_config(monkeypatch):
     monkeypatch.setenv("APP_ENV", "test")
     config = AppConfig.instance()
     assert config.env == "test"
-    assert config.get_config("logging.level") == "info"
+    assert config.get_config("logging.level") == "INFO"
 
 
 def test_get_config_resolves_env_interpolation(monkeypatch):
