@@ -52,6 +52,67 @@ async def test_fetch_epic(provider):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_fetch_epic_extracts_plain_text_from_adf_description(provider):
+    respx.get("https://jira.example.com/rest/api/3/issue/PROJ-4").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "PROJ-4",
+                "fields": {
+                    "summary": "ADF Epic",
+                    "description": {
+                        "type": "doc",
+                        "version": 1,
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": "Intro paragraph."}],
+                            },
+                            {
+                                "type": "bulletList",
+                                "content": [
+                                    {
+                                        "type": "listItem",
+                                        "content": [
+                                            {
+                                                "type": "paragraph",
+                                                "content": [
+                                                    {"type": "text", "text": "First item"}
+                                                ],
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "type": "listItem",
+                                        "content": [
+                                            {
+                                                "type": "paragraph",
+                                                "content": [
+                                                    {"type": "text", "text": "Second item"}
+                                                ],
+                                            }
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+        )
+    )
+
+    epic = await provider.fetch_epic("PROJ-4")
+
+    assert epic is not None
+    assert "{" not in epic.description
+    assert "Intro paragraph." in epic.description
+    assert "- First item" in epic.description
+    assert "- Second item" in epic.description
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_fetch_epic_not_found(provider):
     respx.get("https://jira.example.com/rest/api/3/issue/PROJ-2").mock(
         return_value=httpx.Response(404)

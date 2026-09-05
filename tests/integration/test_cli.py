@@ -32,7 +32,10 @@ def test_fetch_epic_cmd(mock_config):
     )
     result = runner.invoke(app, ["fetch-epic", "PROJ-1"])
     assert result.exit_code == 0
-    assert "Epic Found: Test Epic" in result.stdout
+    assert "Epic: PROJ-1" in result.stdout
+    assert "Test Epic" in result.stdout
+    assert "Desc" in result.stdout
+    assert "╔" in result.stdout
 
 @respx.mock
 def test_create_epic_cmd(mock_config, tmp_path):
