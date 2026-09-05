@@ -62,6 +62,9 @@ class AppConfig:
         self.load_environment_variables()
         self.load_config_yaml_file()
         self.initialize_logging()
+        log.info(f"Loading environment variables from .env file...{Paths.ENV_FILE_PATH}")
+        log.info(f"Environment set to: {self.env}")
+        log.info(f"Successfully loaded configuration from: config_{self.env}.yml")
 
     def initialize_logging(self):
         """
@@ -84,15 +87,9 @@ class AppConfig:
         Sets the application environment using the `APP_ENV` variable.
         """
         try:
-            log.info(
-                f"Loading environment variables from .env file...{Paths.ENV_FILE_PATH}"
-            )
             load_dotenv(Paths.ENV_FILE_PATH)
             env_value = os.environ.get(APP_ENV, DEFAULT_ENVIRONMENT)
             self.env = env_value.lower() if env_value else DEFAULT_ENVIRONMENT
-
-            log.info(f"Environment set to: {self.env}")
-
         except Exception as e:
             log.error(f"Error loading environment variables. Exception: {e}")
             raise
@@ -113,8 +110,6 @@ class AppConfig:
                 )
 
             self.config = parse_config(path=str(full_config_file_path))
-            log.info(f"Successfully loaded configuration from: {config_file}")
-
         except Exception as e:
             log.error(f"Error loading configuration file {config_file}. Exception: {e}")
             raise

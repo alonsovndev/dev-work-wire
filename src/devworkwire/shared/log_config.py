@@ -199,12 +199,13 @@ def initialize_logging(
     """
     _configure_root()
     root = logging.getLogger()
-    root.setLevel(level)
+    is_debug = str(level).strip().upper() == "DEBUG"
 
-    if not console_enabled:
+    if not console_enabled or not is_debug:
         root.handlers.clear()
         return
 
+    root.setLevel(logging.DEBUG)
     if format_type == "text":
         root.handlers[0].setFormatter(_PlainFormatter(colored=console_colored))
     else:
