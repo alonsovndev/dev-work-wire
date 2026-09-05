@@ -25,6 +25,7 @@ dependencies = [
     "backoff>=2.2.1",
     "typer>=0.9.0",
     "InquirerPy>=0.3.4",
+    "pyfiglet>=1.0.0",
     "python-dotenv>=1.0.0",
     "pyaml-env>=1.2.1",
 ]

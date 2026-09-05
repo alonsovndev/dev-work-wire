@@ -16,8 +16,4 @@ jira:
   api_version: "3"
   timeout: 10
   max_retries: 1
-  rate_limit:
-    requests_per_minute: 100
-  projects:
-    default: "TEST"
 

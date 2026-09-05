@@ -24,26 +24,17 @@ Welcome to the DevWorkWire documentation. Pick your path:
 
 ```
 devworkwire/
-├── data/                  # Your epic and story markdown files
 ├── docs/                  # This documentation
 ├── scripts/               # Helper scripts (run-cli)
-├── src/devworkwire/               # Application source
-│   ├── config/            # AppConfig singleton + environment YAML files
-│   ├── core/domain/       # Shared kernel (issue abstractions, value objects, exceptions)
-│   ├── features/          # Vertical feature slices (epic, story)
-│   ├── infrastructure/    # Shared adapter support (Jira settings, parsing)
-│   ├── presentation/      # CLI shell (Typer commands + interactive menu)
-│   └── shared/            # Cross-cutting utilities (logging, retry)
-└── tests/                 # Unit and integration tests, mirrored per feature
+├── src/devworkwire/       # Application source — see architecture/overview.md
+└── tests/                 # Unit and integration tests, mirrored per source module
 ```
 
 ## Tech Stack
 
 | Component | Technology |
 |-----------|------------|
-| CLI | Typer + Rich + InquirerPy |
+| CLI | Typer + InquirerPy (interactive menu) |
 | API Client | httpx (async) |
-| Validation | Pydantic v2 |
-| Parsing | markdown-it-py |
 | Config | python-dotenv + pyaml-env |
 | Testing | pytest + pytest-asyncio + respx |

@@ -10,9 +10,13 @@ def test_create_user_story_empty_title():
     with pytest.raises(BusinessRuleViolation):
         UserStory.create(title="", description="")
 
-def test_direct_init_user_story_fails():
-    with pytest.raises(TypeError):
-        UserStory(title="test", description="desc")
+def test_direct_init_user_story_with_valid_data():
+    story = UserStory(title="test", description="desc")
+    assert story.title == "test"
+
+def test_direct_init_user_story_validates_title():
+    with pytest.raises(BusinessRuleViolation):
+        UserStory(title="", description="desc")
 
 def test_create_epic():
     epic = Epic.create(title="My Epic", description="Desc")

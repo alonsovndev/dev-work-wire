@@ -1,6 +1,6 @@
 # CLI Reference
 
-DevWorkWire provides an interactive menu-driven CLI with InquirerPy, plus direct invocation options for scripting.
+DevWorkWire provides a keyboard-navigable interactive menu, plus direct commands for scripting.
 
 ## Launching the CLI
 
@@ -15,90 +15,53 @@ dwire
 python -m devworkwire.presentation.cli
 ```
 
-On launch, you'll see the DevWorkWire welcome screen followed by the main menu.
+Running `dwire` with no arguments prints the startup banner (logo, tagline, and a
+"Developed by alonsovndev · v{version}" legend) and starts the interactive menu.
+Running `dwire <command> ...` invokes that command directly and exits — no banner or
+menu shown.
 
 ## Interactive Menu
 
-Navigate with arrow keys and press Enter to select.
+Navigate with the arrow keys, press Enter to select.
 
-### Main Menu Options
+| Option | Description |
+|---|---|
+| **Retrieve an epic from Jira by key** | Prompts for a Jira issue key, fetches the epic, and prints its title and description |
+| **Create a new epic in Jira from a markdown file** | Prompts for a path to an epic Markdown file (see [Markdown Format](markdown-format.md)), parses it, and creates the issue |
+| **Exit** | Returns to the shell |
 
-| Option                                           | Description                                        |
-| ------------------------------------------------ | -------------------------------------------------- |
-| **Retrieve an epic and its stories by JIRA key** | Fetches an epic from Jira and displays its details |
-| **Create a new epic in JIRA from file**          | Parses a Markdown file and creates an epic in Jira |
-| **Import an epic from Markdown**                 | Validate → preview → commit workflow               |
-| **Exit the application**                         | Closes the CLI                                     |
+After each action the menu is shown again; select **Exit** to leave.
 
-### Retrieve an Epic
+## Direct Commands
 
-1. Select **"Retrieve an epic and its stories by JIRA key"**
-2. Enter the Jira issue key (e.g., `PROJ-123`)
-3. The CLI displays: key, summary, and description
+### `dwire fetch-epic KEY`
 
-```text
-Epic Summary:
-Key: PROJ-123
-Summary: Backend Modular Monolith Setup
-Description: Establish foundational project structure...
-```
-
-### Create an Epic from Markdown
-
-1. Select **"Create a new epic in JIRA from file"**
-2. Enter the path to an epic Markdown file (defaults to `data/EPIC-0-foundational/epic-0.md`)
-3. The tool parses the file, reads `Epic Key`, `Epic Title`, and `Epic Description`, then creates the issue
-4. Confirmation with key, summary, and description is displayed
-
-```text
-Epic Successfully Created!
-Key: PROJ-456
-Summary: EPIC-1 - My Feature
-Description: ...
-```
-
-After each operation, press Enter to return to the main menu.
-
-## Import Commands
-
-The `dwire import` subcommand group provides the validate → preview → commit workflow for loading markdown-defined epics into your project tracker.
-
-### Preview
-
-Parse and validate a markdown file, persisting a preview for later commit:
+Fetches an epic from Jira by key and prints its title and description.
 
 ```bash
-dwire import preview path/to/epic.md
+dwire fetch-epic PROJ-123
 ```
 
-Displays epic key, title, story count, and validation results. The preview is saved to `.devworkwire/import-preview.json`.
+### `dwire create-epic PATH`
 
-### Commit
-
-Execute the import from a persisted preview:
+Parses a Markdown file (see [Markdown Format](markdown-format.md)) and creates the epic in Jira.
 
 ```bash
-dwire import commit          # prompts for confirmation
-dwire import commit --yes    # skip confirmation
-```
-
-Creates the epic and stories via the configured provider. Deduplicates by source hash — re-importing the same file skips already-imported items.
-
-### Status
-
-List all completed imports from local state:
-
-```bash
-dwire import status
+dwire create-epic path/to/epic.md
 ```
 
 ## Error Handling
 
-| Error                            | Cause                             | Solution                                                               |
-| -------------------------------- | --------------------------------- | ---------------------------------------------------------------------- |
-| `ModuleNotFoundError`            | Virtual environment not activated | Run `source .venv/bin/activate`                                        |
-| `FileNotFoundError`              | Config file missing               | Check `APP_ENV` matches an existing YAML config                        |
-| `UnauthorizedWorkspaceAccess`    | Project key mismatch              | Verify `jira.project_key` in YAML config                               |
-| `BusinessRuleViolationException` | Invalid epic data                 | Check Markdown file format (see [Markdown Format](markdown-format.md)) |
-| `EntityNotFoundException`        | Epic not found in Jira            | Verify the Jira key exists                                             |
-| HTTP 401                         | Invalid credentials               | Check `JIRA_EMAIL` and `JIRA_API_TOKEN` in `.env`                      |
+Both commands catch errors and print `Error fetching epic: ...` / `Error creating epic: ...` to stderr rather than raising a traceback; the process exits `0` either way (this is a scripting convenience, not a signal to rely on for exit-code checks).
+
+| Error | Cause | Solution |
+|---|---|---|
+| `ModuleNotFoundError` | Virtual environment not activated | Run `source .venv/bin/activate` |
+| Project config error | `devworkwire.yml` missing or invalid | Copy `devworkwire.example.yml` to `devworkwire.yml` and adjust `provider`/`project_key` |
+| `Error fetching epic: ...` (404-shaped message) | Epic not found | Verify the Jira key exists |
+| `Error fetching/creating epic: ...` (HTTP error) | Jira unreachable or credentials rejected | Check `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` in `.env` |
+| `Markdown file not found: ...` | Bad path passed to `create-epic` | Check the file path |
+
+## Roadmap
+
+An import/preview/commit workflow with local state tracking (dedupe by content hash) existed in a prior iteration of this project and was reset during the current baseline reconstruction; it isn't available yet. `features/import_`, `features/progress`, and `features/workitem` are reserved packages for that and related work — see [Architecture Overview](../architecture/overview.md#planned-work).
