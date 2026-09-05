@@ -1,26 +1,50 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-build/
-dist/
+# Virtual environments
 .venv/
 venv/
+ENV/
+
+# Python build and package artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Testing and coverage
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
 .coverage
+.coverage.*
 htmlcov/
-.tox/
 
-# Env / secrets (keep .env.example tracked)
-.env
+# Type checking and linting
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
 
-# Logs
-*.log
-
-# OS / editor
-.DS_Store
+# IDEs and editors
 .idea/
+.vscode/
 *.swp
+*.swo
+*~
+.DS_Store
+
+# Environment and configuration
+.env
+.env.local
+.env.*.local
+
+# OS-specific files
+.DS_Store
+.AppleDouble
+.LSOverride
+*.swp
+*.swo
+*~
+
+# Local development
+.python-version
 settings.yml

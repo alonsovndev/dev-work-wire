@@ -4,7 +4,7 @@ from devworkwire.config.project_config import (
     DEFAULT_FIELD_MAPPINGS,
     ProjectConfig,
 )
-from devworkwire.core.domain.exceptions import BusinessRuleViolationException
+from devworkwire.core.domain.exceptions import BusinessRuleViolation
 
 
 def write_config(tmp_path, content: str):
@@ -54,7 +54,7 @@ class TestProjectConfigLoad:
         assert config.transition_overrides == {"In Review": "Peer Review"}
 
     def test_missing_file_raises_with_hint(self, tmp_path):
-        with pytest.raises(BusinessRuleViolationException) as exc_info:
+        with pytest.raises(BusinessRuleViolation) as exc_info:
             ProjectConfig.load(tmp_path / "does-not-exist.yml")
 
         assert "devworkwire.example.yml" in str(exc_info.value)
@@ -62,7 +62,7 @@ class TestProjectConfigLoad:
     def test_missing_provider_raises(self, tmp_path):
         config_file = write_config(tmp_path, "project_key: PROJ\n")
 
-        with pytest.raises(BusinessRuleViolationException) as exc_info:
+        with pytest.raises(BusinessRuleViolation) as exc_info:
             ProjectConfig.load(config_file)
 
         assert "'provider' is required" in str(exc_info.value)
@@ -70,7 +70,7 @@ class TestProjectConfigLoad:
     def test_unsupported_provider_raises(self, tmp_path):
         config_file = write_config(tmp_path, "provider: linear\nproject_key: PROJ\n")
 
-        with pytest.raises(BusinessRuleViolationException) as exc_info:
+        with pytest.raises(BusinessRuleViolation) as exc_info:
             ProjectConfig.load(config_file)
 
         assert "Unsupported provider: linear" in str(exc_info.value)
@@ -78,7 +78,7 @@ class TestProjectConfigLoad:
     def test_missing_project_key_raises(self, tmp_path):
         config_file = write_config(tmp_path, "provider: jira\n")
 
-        with pytest.raises(BusinessRuleViolationException) as exc_info:
+        with pytest.raises(BusinessRuleViolation) as exc_info:
             ProjectConfig.load(config_file)
 
         assert "'project_key' is required" in str(exc_info.value)

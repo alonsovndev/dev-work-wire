@@ -78,13 +78,12 @@ Use `format_type: "text"` for local and container runs so logs are easy to read.
 | `jira.api_version` | Jira REST API version | `3` |
 | `jira.timeout` | Request timeout (seconds) | `30` |
 | `jira.max_retries` | Max retry attempts on failure | `3` |
-| `jira.rate_limit.requests_per_minute` | Rate limit threshold | `60` |
 
 The `!ENV ${VAR_NAME}` syntax in YAML files pulls values from environment variables. This keeps secrets out of committed config files.
 
 ## Project Configuration (`devworkwire.yml`)
 
-This file tells DevWorkWire which provider serves the project and the project key in that provider. Place it in the directory where you run `dwire` (or point to it with `dwire --config path/to/file.yml`).
+This file tells DevWorkWire which provider serves the project and the project key in that provider. Place it in the directory where you run `dwire` (there is no CLI flag yet to point at a different path).
 
 Copy the example and adjust:
 

@@ -21,13 +21,13 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.0.0",
-    "python-dotenv>=1.0.0",
-    "pyaml-env>=1.2.1",
     "httpx>=0.25.0",
     "backoff>=2.2.1",
-    "jira>=3.5.0",
     "typer>=0.9.0",
     "InquirerPy>=0.3.4",
+    "pyfiglet>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "pyaml-env>=1.2.1",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +42,7 @@ dev = [
 ]
 
 [project.scripts]
-dwire = "devworkwire.presentation.cli:app"
+dwire = "devworkwire.presentation.cli.main:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]

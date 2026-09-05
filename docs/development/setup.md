@@ -18,13 +18,14 @@ Same as [installation](../getting-started/installation.md), plus:
 
 ### Naming
 
+Standard Python (PEP 8) naming throughout — no camelCase:
+
 | What | Convention | Examples |
 |------|-----------|----------|
-| Classes | PascalCase | `Epic`, `UserStory`, `JiraEpicRepository` |
-| Functions/methods | camelCase | `get_epic`, `find_epics_by_project` |
-| Variables | camelCase | `epicId`, `storyKey`, `jiraConfig` |
-| Files | snake_case | `epic.py`, `user_story.py`, `jira_repository.py` |
-| Test files | test_ prefixed | `test_epic.py`, `test_priority.py` |
+| Classes | PascalCase | `Epic`, `UserStory`, `JiraProvider` |
+| Functions/methods/variables | snake_case | `fetch_epic`, `get_jira_provider`, `issue_key` |
+| Files | snake_case | `entities.py`, `jira_provider.py` |
+| Test files | test_ prefixed | `test_entities.py`, `test_jira_provider.py` |
 
 ### Type Hints
 
@@ -84,28 +85,16 @@ For running tests, the test config is loaded automatically by test fixtures.
 
 ## Directory Structure for New Features
 
-When adding features, follow the existing vertical-slice structure — each feature owns its full stack:
-
-```
-src/devworkwire/
-├── core/
-│   └── domain/              # Shared kernel: issue abstractions, value objects, exceptions
-├── features/
-│   ├── epic/                # Reference feature slice
-│   │   ├── application/     # Use cases, ports (ABCs), DTOs, mappers
-│   │   ├── domain/          # Entities with factory methods
-│   │   └── infrastructure/  # Repository implementation + dependencies.py composition root
-│   ├── story/
-│   └── <new-feature>/       # Copy the epic layout: domain → application → infrastructure
-├── infrastructure/
-│   └── external/jira/       # Cross-feature adapters support (settings, parsing)
-├── presentation/            # CLI shell registering feature commands
-└── shared/                  # Cross-cutting utilities (logging, retry)
-```
+See [Architecture Overview](../architecture/overview.md) for the current source layout —
+don't duplicate it here; it drifts. In short: shared domain concepts go in `core/domain/`,
+cross-feature ports in `core/ports/`, feature-specific application/presentation code under
+`features/<name>/`, and adapters under `infrastructure/`.
 
 **Rules for new features:**
 
-1. Depend only on `core/` and `shared/` — plus other features' public API (`ports.py`, `dtos.py`, `mappers.py`) when collaboration is required.
-2. Keep `domain/` framework-agnostic; no imports from `application` or `infrastructure`.
-3. Register new CLI commands in `presentation/cli.py`, delegating to handlers inside the feature's own `presentation/` module.
-4. Mirror the source tree in `tests/unit/features/<feature>/` and add adapter tests under `tests/integration/<feature>/`.
+1. Depend only on `core/` and `shared/` — plus another feature's public API when
+   collaboration is required.
+2. Keep domain code framework-agnostic; no imports from infrastructure or presentation.
+3. Register new CLI commands in `presentation/cli/main.py`.
+4. Mirror the source tree under `tests/unit/` and add adapter tests under
+   `tests/integration/`.

@@ -7,39 +7,22 @@ Tests mirror the source directory structure:
 ```
 tests/
 ├── unit/
+│   ├── config/
+│   │   ├── test_app_config.py       # AppConfig singleton, env selection, env-var interpolation
+│   │   └── test_project_config.py   # devworkwire.yml loading and validation
 │   ├── core/
-│   │   └── domain/
-│   │       ├── value_objects/
-│   │       │   ├── test_issue_id.py       # IssueId parsing and equality
-│   │       │   ├── test_label.py          # Label validation
-│   │       │   ├── test_label_set.py      # LabelSet operations
-│   │       │   ├── test_priority.py       # Priority comparison
-│   │       │   └── test_story_points.py   # StoryPoints arithmetic
-│   │       └── exceptions/
-│   │           └── test_exceptions.py     # Exception hierarchy
-│   ├── features/
-│   │   ├── epic/
-│   │   │   ├── domain/
-│   │   │   │   └── test_epic.py                  # Epic factory method tests
-│   │   │   ├── application/
-│   │   │   │   ├── test_create_epic_from_markdown.py
-│   │   │   │   └── test_get_epic_with_stories.py # Use case tests
-│   │   │   ├── infrastructure/
-│   │   │   │   └── test_project_key_restrictions.py  # Authorization tests
-│   │   │   └── presentation/
-│   │   │       └── test_commands.py              # CLI command handler tests
-│   │   └── story/
-│   │       ├── domain/
-│   │       │   └── test_user_story.py     # UserStory factory method tests
-│   │       └── application/
-│   │           └── test_story_mapper.py
-│   └── presentation/
-│       └── test_cli.py                    # Typer command registration tests
+│   │   └── test_composition.py      # Container builds JiraSettings from config; caches the provider
+│   ├── domain/
+│   │   ├── test_entities.py         # Epic / UserStory construction and validation
+│   │   └── test_value_objects.py    # IssueId / Priority / StoryPoints / Label
+│   ├── jira/
+│   │   └── test_jira_provider.py    # JiraProvider against respx-mocked HTTP (incl. retry/timeout/api_version wiring)
+│   ├── presentation/
+│   │   └── test_interactive_menu.py # Interactive menu wiring (selection -> prompt -> action), mocked
+│   └── shared/
+│       └── test_log_config.py       # Structured logging formatters and context
 └── integration/
-    ├── epic/
-    │   └── test_jira_epic_repository.py   # Epic adapter with respx mocking
-    └── story/
-        └── test_jira_story_repository.py  # Story adapter with respx mocking
+    └── test_cli.py                  # Typer commands end-to-end via CliRunner + respx
 ```
 
 ## Running Tests
@@ -51,20 +34,14 @@ pytest
 # With verbose output
 pytest -v
 
-# Specific directory
-pytest tests/unit/features/epic/domain/
-
 # Specific file
-pytest tests/unit/features/epic/domain/test_epic.py
+pytest tests/unit/jira/test_jira_provider.py
 
 # Specific test
-pytest tests/unit/features/epic/domain/test_epic.py::test_create_epic_with_valid_data
+pytest tests/unit/domain/test_entities.py::test_create_epic
 
 # With coverage
 pytest --cov=src
-
-# Coverage with HTML report
-pytest --cov=src --cov-report=html
 ```
 
 ## Writing Tests
@@ -74,75 +51,54 @@ pytest --cov=src --cov-report=html
 Domain tests are pure unit tests — no mocks, no I/O:
 
 ```python
-def test_epic_creation_with_valid_data():
-    epic = Epic.create(
-        key="PROJ-123",
-        numeric_id=10042,
-        summary="User Auth",
-        description="Implement OAuth2",
-        status=IssueStatus.TODO,
-        created_at=datetime(2024, 1, 1),
-        updated_at=datetime(2024, 1, 1),
-    )
-    assert epic.key == "PROJ-123"
-    assert epic.summary == "User Auth"
+def test_create_epic():
+    epic = Epic.create(title="My Epic", description="Desc")
+    assert epic.title == "My Epic"
+
+def test_create_epic_empty_title():
+    with pytest.raises(BusinessRuleViolation):
+        Epic.create(title=" ", description="")
 ```
 
-Test both success and failure paths:
+### Jira Adapter Tests
 
-```python
-def test_epic_creation_rejects_empty_key():
-    with pytest.raises(BusinessRuleViolationException):
-        Epic.create(key="", numeric_id=1, summary="Test", ...)
-```
-
-### Application Tests
-
-Use mock ports to test use cases without Jira — one per repository dependency:
-
-```python
-@pytest.fixture
-def mock_epic_repo():
-    repo = AsyncMock(spec=EpicRepository)
-    repo.get_epic.return_value = sample_epic
-    return repo
-
-@pytest.fixture
-def mock_story_repo():
-    repo = AsyncMock(spec=StoryRepository)
-    repo.get_stories_in_epic.return_value = [sample_story]
-    return repo
-
-@pytest.mark.asyncio
-async def test_get_epic_with_stories(mock_epic_repo, mock_story_repo):
-    use_case = GetEpicWithStories(
-        epic_repository=mock_epic_repo, story_repository=mock_story_repo
-    )
-    result = await use_case.execute("PROJ-123")
-    assert result.key == "PROJ-123"
-    assert len(result.user_stories) == 1
-```
-
-### Integration Tests
-
-Use `respx` to mock HTTP responses for the Jira client:
+Use `respx` to mock HTTP responses against the real `JiraProvider`:
 
 ```python
 @pytest.mark.asyncio
-async def test_get_epic_from_jira(respx_mock):
-    respx_mock.get("https://jira.example.com/rest/api/3/issue/PROJ-123").mock(
-        return_value=httpx.Response(200, json=mock_epic_response)
+@respx.mock
+async def test_fetch_epic(provider):
+    respx.get("https://jira.example.com/rest/api/3/issue/PROJ-1").mock(
+        return_value=httpx.Response(200, json={"key": "PROJ-1", "fields": {"summary": "S"}})
     )
-    repo = JiraEpicRepository(JiraSettings.from_dict(jira_config))
-    epic = await repo.get_epic(IssueId.from_string("PROJ-123"))
-    assert epic.key == "PROJ-123"
+    epic = await provider.fetch_epic("PROJ-1")
+    assert epic.title == "S"
 ```
+
+Keep `max_retries=1` (or similarly low) in test fixtures for `JiraSettings` — `backoff`'s exponential delays otherwise slow the suite for every test that exercises a failure path.
+
+### CLI Tests
+
+`tests/integration/test_cli.py` invokes the Typer app through `CliRunner`, injecting a `JiraProvider` directly into the module-level `container` (bypassing real config loading):
+
+```python
+@pytest.fixture
+def mock_config():
+    container._jira_provider = JiraProvider(JiraSettings(..., max_retries=1))
+    yield
+    container._jira_provider = None
+```
+
+Cover both the success path and the error path (the CLI commands catch `Exception` and print `Error ...:` rather than raising, so assert on `result.output`, not just `exit_code`).
+
+### Interactive Menu Tests
+
+The interactive menu (`presentation/cli/main.py::_run_interactive_menu`) is tested by monkeypatching `InquirerPy.inquirer.select`/`.text`/`.filepath` to return canned choices, and the `_fetch_epic`/`_create_epic` helpers with `unittest.mock.AsyncMock` — this verifies menu wiring (which prompt follows which choice, which helper gets called with what argument) without needing a real terminal. End-to-end keyboard behavior is verified manually against a pty (`script -q /dev/null dwire` or similar), not in the automated suite.
 
 ## Testing Conventions
 
-- Use `pytest` fixtures for shared setup
-- Use `pytest.mark.asyncio` for async test functions
-- Use `pytest.raises` for exception testing
-- Mock at the repository boundary, never mock domain objects
-- Each test should assert one behavior
-- Name tests as `test_<what>_<condition>_<expected>`
+- Use `pytest` fixtures for shared setup.
+- Use `pytest.mark.asyncio` for async test functions.
+- Use `pytest.raises` for exception testing.
+- Mock at the HTTP boundary (`respx`) or the provider/config boundary — never mock domain objects.
+- Each test asserts one behavior.

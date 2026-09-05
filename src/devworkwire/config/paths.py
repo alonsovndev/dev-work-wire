@@ -21,7 +21,7 @@ class Paths:
     LOGS_DIR = BASE_DIR / "logs"
 
     # Local storage directory for files (if applicable)
-    LOCAL_STORAGE_DIR = BASE_DIR / "../tmp/"
+    LOCAL_STORAGE_DIR = BASE_DIR / "tmp"
 
     @staticmethod
     def ensure_directories_exist():
