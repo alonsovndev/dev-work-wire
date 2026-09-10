@@ -21,7 +21,7 @@ src/devworkwire/
 │   ├── service/                 # (empty — reserved, see Planned Work)
 │   └── composition.py           # Composition root: Container wires JiraProvider from config
 ├── features/
-│   ├── import_/application/     # Epic markdown parser
+│   ├── import_/application/     # Epic/stories markdown parsers
 │   ├── progress/                # (empty — reserved)
 │   └── workitem/                # (empty — reserved)
 ├── infrastructure/
@@ -71,6 +71,12 @@ sequenceDiagram
     CLI-->>User: Print title + description
 ```
 
+`create-epic <folder>` follows a similar shape: the CLI parses `<folder>/epic.md`,
+calls `provider.create_epic()`, then parses `<folder>/stories.md` (skipped if
+absent) and calls `provider.create_story(story, epic_key=...)` once per story,
+linking each to the epic via Jira's `parent` field. A story failure is reported
+and does not stop the remaining stories.
+
 ## Core Domain (`core/domain/`)
 
 - **`entities.py`** — `Epic` and `UserStory`. Both validate their title in `__init__` (raising `BusinessRuleViolation` on an empty/blank title); `.create()` is a thin, documented entry point with the same validation, not a required gate — direct construction is also valid.
@@ -80,7 +86,7 @@ sequenceDiagram
 ## Jira Adapter (`infrastructure/external/jira/`)
 
 - **`settings.py`** — `JiraSettings`: frozen dataclass holding `base_url`, `username`, `api_token`, `project_key`, `api_version`, `timeout`, `max_retries`. Built by the composition root from `AppConfig` + `ProjectConfig`.
-- **`jira_provider.py`** — `JiraProvider(WorkItemProvider)`: implements `fetch_epic`/`create_epic` over `httpx`, with a `backoff`-based retry (`max_tries=settings.max_retries`) applied per-instance around the private `_fetch_epic`/`_create_epic` methods. The HTTP client honors `settings.timeout`; the issue URL honors `settings.api_version`.
+- **`jira_provider.py`** — `JiraProvider(WorkItemProvider)`: implements `fetch_epic`/`create_epic`/`create_story` over `httpx`, with a `backoff`-based retry (`max_tries=settings.max_retries`) applied per-instance around the private `_fetch_epic`/`_create_epic`/`_create_story` methods. `create_story` links to its parent Epic via Jira's `parent` field. The HTTP client honors `settings.timeout`; the issue URL honors `settings.api_version`.
 
 ## Configuration (`config/`)
 
@@ -93,7 +99,7 @@ sequenceDiagram
 
 ## Presentation (`presentation/cli/main.py`)
 
-A Typer app with two direct commands (`fetch-epic`, `create-epic`) for scripting, plus an interactive, keyboard-navigable menu (built with `InquirerPy`) shown when `dwire` is invoked with no subcommand. Both paths call the same private `_fetch_epic`/`_create_epic` async helpers, so there is one place that owns error handling and Jira interaction for each action.
+A Typer app with two direct commands (`fetch-epic`, `create-epic <folder>`) for scripting, plus an interactive, keyboard-navigable menu (built with `InquirerPy`) shown when `dwire` is invoked with no subcommand. Both paths call the same private `_fetch_epic`/`_create_epic` async helpers, so there is one place that owns error handling and Jira interaction for each action. `create-epic` expects a folder containing `epic.md` (required) and `stories.md` (optional) — see [Markdown Format Specification](../guides/markdown-format.md).
 
 ## Planned Work
 

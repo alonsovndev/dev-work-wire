@@ -1,8 +1,10 @@
+import json
+
 import httpx
 import pytest
 import respx
 
-from devworkwire.core.domain import Epic, Priority
+from devworkwire.core.domain import Epic, Label, Priority, UserStory
 from devworkwire.infrastructure.external.jira.jira_provider import JiraProvider
 from devworkwire.infrastructure.external.jira.settings import JiraSettings
 
@@ -134,6 +136,58 @@ async def test_create_epic(provider):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_create_story_links_to_parent_epic(provider):
+    route = respx.post("https://jira.example.com/rest/api/3/issue").mock(
+        return_value=httpx.Response(200, json={"key": "PROJ-4"})
+    )
+    story = UserStory.create(
+        title="New Story",
+        description="Desc",
+        priority=Priority.from_jira_name("High"),
+        labels=[Label(name="backend")],
+    )
+
+    key = await provider.create_story(story, epic_key="PROJ-3")
+
+    assert key == "PROJ-4"
+    body = json.loads(route.calls.last.request.content)
+    assert body["fields"]["issuetype"] == {"name": "Story"}
+    assert body["fields"]["parent"] == {"key": "PROJ-3"}
+    assert body["fields"]["summary"] == "New Story"
+    assert body["fields"]["priority"] == {"name": "High"}
+    assert body["fields"]["labels"] == ["backend"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_epic_maps_moscow_priority_to_jira_scheme(provider):
+    route = respx.post("https://jira.example.com/rest/api/3/issue").mock(
+        return_value=httpx.Response(200, json={"key": "PROJ-5"})
+    )
+    epic = Epic.create(title="New Epic", description="Desc", priority=Priority.from_jira_name("Must Have"))
+
+    await provider.create_epic(epic)
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["fields"]["priority"] == {"name": "Highest"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_story_maps_moscow_priority_to_jira_scheme(provider):
+    route = respx.post("https://jira.example.com/rest/api/3/issue").mock(
+        return_value=httpx.Response(200, json={"key": "PROJ-6"})
+    )
+    story = UserStory.create(title="New Story", description="Desc", priority=Priority.from_jira_name("Could Have"))
+
+    await provider.create_story(story, epic_key="PROJ-5")
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["fields"]["priority"] == {"name": "Medium"}
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_fetch_epic_uses_configured_api_version():
     settings = JiraSettings(
         base_url="https://jira.example.com",
@@ -185,3 +239,21 @@ async def test_fetch_epic_gives_up_after_max_retries(provider):
 
     with pytest.raises(httpx.HTTPStatusError):
         await provider.fetch_epic("PROJ-1")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_epic_error_includes_jira_field_validation_detail(provider):
+    respx.post("https://jira.example.com/rest/api/3/issue").mock(
+        return_value=httpx.Response(
+            400,
+            json={
+                "errorMessages": [],
+                "errors": {"priority": "Priority name 'Must Have' is not on the appropriate screen, or is not a valid priority."},
+            },
+        )
+    )
+    epic = Epic.create(title="New Epic", description="Desc", priority=Priority.from_jira_name("Must Have"))
+
+    with pytest.raises(httpx.HTTPStatusError, match="priority: Priority name 'Must Have'"):
+        await provider.create_epic(epic)

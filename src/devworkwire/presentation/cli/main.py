@@ -6,7 +6,10 @@ import typer
 from InquirerPy import inquirer
 
 from devworkwire.core.composition import Container
-from devworkwire.features.import_.application.markdown_parser import parse_epic_markdown
+from devworkwire.features.import_.application.markdown_parser import (
+    parse_epic_markdown,
+    parse_stories_markdown,
+)
 from devworkwire.presentation.cli.banner import print_banner
 from devworkwire.presentation.cli.epic_panel import render_epic_panel
 
@@ -14,8 +17,11 @@ app = typer.Typer()
 container = Container()
 
 _RETRIEVE_EPIC = "Retrieve an epic from Jira by key"
-_CREATE_EPIC = "Create a new epic in Jira from a markdown file"
+_CREATE_EPIC = "Load an epic and its stories from a folder and upload to JIRA"
 _EXIT = "Exit"
+
+_EPIC_FILENAME = "epic.md"
+_STORIES_FILENAME = "stories.md"
 
 
 @app.callback(invoke_without_command=True)
@@ -32,9 +38,9 @@ def fetch_epic(key: str) -> None:
 
 
 @app.command("create-epic")
-def create_epic(path: str) -> None:
-    """Create an epic in Jira from a markdown file."""
-    asyncio.run(_create_epic(path))
+def create_epic(folder_path: str) -> None:
+    """Create an epic and its stories in Jira from a folder containing epic.md and stories.md."""
+    asyncio.run(_create_epic(folder_path))
 
 
 async def _fetch_epic(key: str) -> None:
@@ -49,14 +55,26 @@ async def _fetch_epic(key: str) -> None:
         typer.echo(f"Error fetching epic: {e}", err=True)
 
 
-async def _create_epic(path: str) -> None:
+async def _create_epic(folder_path: str) -> None:
     try:
-        epic = parse_epic_markdown(path)
+        if not os.path.isdir(folder_path):
+            raise NotADirectoryError(f"Folder not found: {folder_path}")
+
+        epic = parse_epic_markdown(os.path.join(folder_path, _EPIC_FILENAME))
         provider = container.get_jira_provider()
         issue_key = await provider.create_epic(epic)
         typer.echo(f"Successfully created epic: {issue_key}")
     except Exception as e:
         typer.echo(f"Error creating epic: {e}", err=True)
+        return
+
+    stories = parse_stories_markdown(os.path.join(folder_path, _STORIES_FILENAME))
+    for story in stories:
+        try:
+            story_key = await provider.create_story(story, epic_key=issue_key)
+            typer.echo(f"Successfully created story: {story_key} ({story.title})")
+        except Exception as e:
+            typer.echo(f"Error creating story '{story.title}': {e}", err=True)
 
 
 def _clear_screen() -> None:
@@ -86,8 +104,10 @@ def _run_interactive_menu() -> None:
                 message="Press Enter to return to the menu...", default=True
             ).execute()
         elif choice == _CREATE_EPIC:
-            path = inquirer.filepath(message="Path to epic markdown file:").execute()
-            asyncio.run(_create_epic(path))
+            folder_path = inquirer.text(
+                message="Enter the path to the folder containing epic.md and stories.md:"
+            ).execute()
+            asyncio.run(_create_epic(folder_path))
             inquirer.confirm(
                 message="Press Enter to return to the menu...", default=True
             ).execute()

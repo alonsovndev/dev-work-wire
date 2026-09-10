@@ -37,16 +37,16 @@ def test_retrieve_epic_choice_prompts_for_key_and_fetches(monkeypatch):
     fetch.assert_awaited_once_with("PROJ-1")
 
 
-def test_create_epic_choice_prompts_for_path_and_creates(monkeypatch):
+def test_create_epic_choice_prompts_for_folder_and_creates(monkeypatch):
     select_values = iter([main._CREATE_EPIC, main._EXIT])
     monkeypatch.setattr(
         main.inquirer, "select", MagicMock(side_effect=lambda **_: _prompt(next(select_values)))
     )
-    monkeypatch.setattr(main.inquirer, "filepath", MagicMock(return_value=_prompt("epic.md")))
+    monkeypatch.setattr(main.inquirer, "text", MagicMock(return_value=_prompt("work-items/EPIC-1")))
     monkeypatch.setattr(main.inquirer, "confirm", MagicMock(return_value=_prompt(True)))
     create = AsyncMock()
     monkeypatch.setattr(main, "_create_epic", create)
 
     main._run_interactive_menu()
 
-    create.assert_awaited_once_with("epic.md")
+    create.assert_awaited_once_with("work-items/EPIC-1")
