@@ -5,6 +5,7 @@ import httpx
 
 from devworkwire.core.domain import Epic, IssueId, Label, Priority, UserStory
 from devworkwire.core.ports.work_item_provider import WorkItemProvider
+from devworkwire.infrastructure.external.jira.markdown_to_adf import markdown_to_adf
 from devworkwire.infrastructure.external.jira.settings import JiraSettings
 
 
@@ -81,20 +82,6 @@ def _jira_priority_name(priority: Priority) -> str:
     return _MOSCOW_TO_JIRA_PRIORITY.get(priority.name, priority.name)
 
 
-def _text_to_adf(text: str) -> dict:
-    """Wraps plain text as a single-paragraph Atlassian Document Format doc."""
-    return {
-        "type": "doc",
-        "version": 1,
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": text}],
-            }
-        ],
-    }
-
-
 class JiraProvider(WorkItemProvider):
     def __init__(self, settings: JiraSettings):
         self.settings = settings
@@ -158,7 +145,7 @@ class JiraProvider(WorkItemProvider):
             "fields": {
                 "project": {"key": self.settings.project_key},
                 "summary": epic.title,
-                "description": _text_to_adf(epic.description),
+                "description": markdown_to_adf(epic.description),
                 "issuetype": {"name": "Epic"},
             }
         }
@@ -182,7 +169,7 @@ class JiraProvider(WorkItemProvider):
             "fields": {
                 "project": {"key": self.settings.project_key},
                 "summary": story.title,
-                "description": _text_to_adf(story.description),
+                "description": markdown_to_adf(story.description),
                 "issuetype": {"name": "Story"},
                 "parent": {"key": epic_key},
             }

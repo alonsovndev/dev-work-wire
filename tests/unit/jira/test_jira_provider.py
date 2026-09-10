@@ -160,6 +160,32 @@ async def test_create_story_links_to_parent_epic(provider):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_create_story_renders_markdown_description_as_rich_text(provider):
+    route = respx.post("https://jira.example.com/rest/api/3/issue").mock(
+        return_value=httpx.Response(200, json={"key": "PROJ-7"})
+    )
+    story = UserStory.create(
+        title="New Story",
+        description="**As a** user,\n**So that** I benefit.\n\n**Acceptance Criteria**:\n- [ ] It works.",
+    )
+
+    await provider.create_story(story, epic_key="PROJ-3")
+
+    body = json.loads(route.calls.last.request.content)
+    description = body["fields"]["description"]
+    assert description["type"] == "doc"
+    text_nodes = [node for node in description["content"] if node["type"] == "paragraph"]
+    assert {"type": "text", "text": "As a", "marks": [{"type": "strong"}]} in text_nodes[0]["content"]
+    checklist = next(node for node in description["content"] if node["type"] == "bulletList")
+    item_text_nodes = checklist["content"][0]["content"][0]["content"]
+    assert item_text_nodes[0] == {"type": "text", "text": "☐ "}
+    assert item_text_nodes[1] == {"type": "text", "text": "It works."}
+    assert "**" not in json.dumps(description)
+    assert "- [ ]" not in json.dumps(description)
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_create_epic_maps_moscow_priority_to_jira_scheme(provider):
     route = respx.post("https://jira.example.com/rest/api/3/issue").mock(
         return_value=httpx.Response(200, json={"key": "PROJ-5"})
