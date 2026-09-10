@@ -49,3 +49,4 @@ settings.yml
 # Local development
 .python-version
 settings.yml
+.env
