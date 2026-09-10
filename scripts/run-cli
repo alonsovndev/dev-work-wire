@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Activate the virtual environment
+source .venv/bin/activate
+
+# Install dependencies if necessary
+# pip install -r requirements.txt
+
+# Run the CLI with arguments
+python -m devworkwire.presentation.cli "$@"

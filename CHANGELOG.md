@@ -7,37 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Import engine (S3)**: validate → preview → commit workflow for loading
-  markdown-defined epics into project trackers.
-- `ImportService` application service: orchestrates parsing, validation,
-  deduplication (SHA-256 source hash), and commit with state persistence.
-- `StateRepository` port and `SqliteStateStore` adapter: SQLite-backed local
-  state tracking imports and work-item references (source_hash column for
-  deduplication).
-- `ImportPreview`, `EpicPreview`, `StoryPreview`, `ValidationReport` domain
-  models for structured import data.
-- `ImportRecord`, `WorkItemRef` domain models for import state tracking.
-- `ImportPreviewDto`, `ImportCommitResultDto`, `WorkItemResultDto` DTOs for
-  the import feature boundary.
-- `dwire import preview <file>` CLI command: parse, validate, and persist a
-  preview JSON for later commit.
-- `dwire import commit` CLI command: execute the import from a persisted
-  preview, creating epics and stories via the provider.
-- `dwire import status` CLI command: list all completed imports from local state.
-- `EpicMarkdownParser.parse_structured()`: two-pass parser returning
-  `EpicPreview` with stories and acceptance criteria; backward-compatible
-  `parse()` method preserved.
-- `WorkItemProvider` extensions: `find_epic_by_key()`, `create_user_story()`,
-  `update_epic()` added to the ABC and Jira adapter.
-- Parser and import service test suites (19 tests across 3 test files).
-
 ### Changed
 
-- `Composition` dataclass now holds `work_item_provider`, `state_repository`,
-  and `import_service`; `get_import_service()` shortcut added.
-- `import` subcommand group registered in CLI (preview/commit/status).
+- **Reset to a vertical-slice baseline**, replacing the prior layered
+  epic/story/work_items architecture: `Epic`/`UserStory` entities, value
+  objects, and exceptions consolidated under `core/domain/`; a single
+  `WorkItemProvider` port lives in `core/ports/`; the Jira adapter and CLI
+  were rebuilt against it. The import engine (`ImportService`,
+  `SqliteStateStore`, `dwire import preview/commit/status`) and the MCP
+  server were removed pending redesign — `features/import_`,
+  `features/progress`, `features/workitem`, `infrastructure/local/store`,
+  and `presentation/mcp` are reserved empty packages for that future work.
+  The sample `data/EPIC-*` markdown and the old product-plan spec were
+  removed as part of this reset.
+- `JiraProvider` now takes a single `JiraSettings` value object instead of
+  four positional parameters, and actually reads `timeout`, `max_retries`,
+  and `api_version` from config — previously declared in
+  `config_local.yml`/`config_test.yml` but silently ignored (no explicit
+  HTTP timeout, hardcoded retry count and API version).
+- `Epic`/`UserStory` no longer gate construction behind a `_bypass_init`
+  flag; `__init__` validates the title directly and `.create()` is a thin,
+  documented convenience wrapper — direct construction is equally valid.
+
+### Added
+
+- Interactive, keyboard-navigable CLI menu (`InquirerPy`), shown when
+  `dwire` is run with no subcommand; `dwire fetch-epic`/`dwire create-epic`
+  remain available for direct invocation/scripting.
+- Startup banner (`presentation/cli/banner.py`): boxed `DWIRE` block-letter
+  logo (`pyfiglet`, new dependency) with tagline, plus a
+  "Developed by alonsovndev · v{version}" legend read from the installed
+  package version.
+- Tests for the composition root (`Container` builds and caches
+  `JiraProvider` from config), the Jira provider's retry/timeout/api_version
+  wiring, the interactive menu, and CLI error paths.
+
+### Removed
+
+- Unused `rate_limit`/`projects` keys from `config_local.yml`/
+  `config_test.yml` (declared but never read by any code).
+
+### Fixed
+
+- `Paths.LOCAL_STORAGE_DIR` no longer resolves outside the project root via
+  a relative `..`.
 
 ## [0.2.0] - 2026-08-26
 
