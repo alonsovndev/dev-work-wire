@@ -13,6 +13,8 @@ class UserStory:
         priority: Optional[Priority] = None,
         story_points: Optional[StoryPoints] = None,
         labels: Optional[List[Label]] = None,
+        epic_key: Optional[str] = None,
+        status: Optional[str] = None,
     ):
         if not title or not title.strip():
             raise BusinessRuleViolation("UserStory title cannot be empty")
@@ -22,6 +24,8 @@ class UserStory:
         self.priority = priority
         self.story_points = story_points
         self.labels = labels or []
+        self.epic_key = epic_key
+        self.status = status
 
     @classmethod
     def create(

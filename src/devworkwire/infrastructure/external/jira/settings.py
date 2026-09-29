@@ -18,3 +18,4 @@ class JiraSettings:
     api_version: str = DEFAULT_API_VERSION
     timeout: float = DEFAULT_TIMEOUT_SECONDS
     max_retries: int = DEFAULT_MAX_RETRIES
+    story_points_field: str | None = None
