@@ -1,9 +1,8 @@
 # Markdown Format Specification
 
-`dwire import-folder <folder>` reads `epic.md` (required) and `stories.md` (optional)
-from a folder via `parse_epic_markdown()` and `parse_stories_markdown()`
-(`features/import_/application/markdown_parser.py`). These are the only Markdown
-formats currently supported.
+`dwire preview-folder <folder>` and `dwire import-folder <folder>` read `epic.md`
+(required) and `stories.md` (optional). Both commands validate the files locally
+before any Jira item is created. These are the only Markdown formats supported.
 
 ## `epic.md`
 
@@ -21,7 +20,7 @@ formats currently supported.
 
 | Field | Required | Description |
 |---|---|---|
-| `# Epic: [Title]` | No — defaults to `Untitled Epic` | Epic title, on its own heading line |
+| `# Epic: [Title]` | Yes for folder commands | Epic title, on its own heading line |
 | `**Priority**:` | No | Passed through as-is to `Priority.from_jira_name()` |
 | `**Labels**:` | No | Comma-separated; each becomes a `Label` (no spaces allowed within a label name) |
 | `**Epic Description:**` | No — defaults to empty | Free text; captured up to the next `##` heading or end of file |
@@ -32,7 +31,7 @@ modeled by the `Epic` entity today and are ignored.
 
 ## `stories.md`
 
-Stories are optional — a missing `stories.md` simply yields no stories. Each story
+Stories are optional — a missing or empty `stories.md` yields no stories. Each story
 is a block starting with a `### <Story ID>: <Title>` heading:
 
 ```markdown
@@ -65,9 +64,11 @@ Other fields (`**Story ID**`, `**Epic Link**`, `**Issue Type**`, `**Status**`,
 
 ### How It's Parsed
 
-Both parsers read the whole file and extract fields with regular expressions —
-field order doesn't matter. Each created Story is linked to its Epic via Jira's
-`parent` field, using the issue key returned when the Epic was created. Missing
-fields fall back to their defaults; there's no validation beyond what
-`Epic.create()`/`UserStory.create()` already enforce (a non-empty title, valid
-label names).
+Both parsers read the whole file and extract fields with regular expressions;
+field order does not matter. Folder validation requires the epic heading and a
+title in every story heading. It reports malformed headings, invalid labels,
+empty priorities, and estimates that are not nonnegative integers, with file and
+line locations. All detectable errors are shown together. Optional fields may
+be omitted. Validation is local: Jira can still reject an item because of its
+project settings or permissions. Each created Story is linked to its Epic via
+Jira's `parent` field, using the key returned when the Epic was created.

@@ -9,9 +9,9 @@ from InquirerPy import inquirer
 
 from devworkwire.core.composition import Container
 from devworkwire.core.domain import Epic, Label, Priority, StoryPoints, UserStory
-from devworkwire.features.import_.application.markdown_parser import (
-    parse_epic_markdown,
-    parse_stories_markdown,
+from devworkwire.features.import_.application.folder_preview import (
+    FolderPreview,
+    preview_folder as load_folder_preview,
 )
 from devworkwire.presentation.cli.banner import print_banner
 from devworkwire.presentation.cli.epic_panel import render_epic_panel, render_story_panel
@@ -25,11 +25,9 @@ _LIST_STORIES = "List stories in an epic"
 _LIST_ASSIGNED = "List open work assigned to a user"
 _CREATE_EPIC = "Create one epic in Jira"
 _CREATE_STORY = "Create one story in an existing epic"
+_PREVIEW_FOLDER = "Preview and validate a folder"
 _IMPORT_FOLDER = "Import an epic and its stories from a folder"
 _EXIT = "Exit"
-
-_EPIC_FILENAME = "epic.md"
-_STORIES_FILENAME = "stories.md"
 
 
 @dataclass(frozen=True)
@@ -112,9 +110,19 @@ def create_story(
 
 
 @app.command("import-folder")
-def import_folder(folder_path: str) -> None:
+def import_folder(
+    folder_path: str,
+    yes: bool = typer.Option(False, "--yes", help="Create without an interactive confirmation"),
+) -> None:
     """Upload epic.md and optional stories.md from a folder."""
-    if not asyncio.run(_import_folder(folder_path)):
+    if not asyncio.run(_import_folder(folder_path, yes=yes)):
+        raise typer.Exit(code=1)
+
+
+@app.command("preview-folder")
+def preview_folder(folder_path: str) -> None:
+    """Show local work items and validation errors without contacting Jira."""
+    if not _preview_folder(folder_path):
         raise typer.Exit(code=1)
 
 
@@ -217,21 +225,66 @@ async def _create_story(epic_key: str, item: WorkItemInput) -> bool:
         return False
 
 
-async def _import_folder(folder_path: str) -> bool:
+def _show_folder_preview(preview: FolderPreview) -> None:
+    typer.echo(f"Epic: {preview.epic_title or '(missing or invalid)'}")
+    if preview.epic is not None:
+        epic_details = []
+        if preview.epic.priority:
+            epic_details.append(f"priority={preview.epic.priority.name}")
+        if preview.epic.labels:
+            epic_details.append(f"labels={', '.join(label.name for label in preview.epic.labels)}")
+        if epic_details:
+            typer.echo(f"  {', '.join(epic_details)}")
+    typer.echo(f"Stories ({len(preview.stories)}):")
+    for story in preview.stories:
+        details = []
+        if story.item is not None:
+            if story.item.priority:
+                details.append(f"priority={story.item.priority.name}")
+            if story.item.labels:
+                details.append(f"labels={', '.join(label.name for label in story.item.labels)}")
+            if story.item.story_points is not None:
+                details.append(f"points={story.item.story_points.value}")
+        suffix = f" — {', '.join(details)}" if details else ""
+        typer.echo(f"  - {story.title} (stories.md:{story.line}){suffix}")
+    if preview.errors:
+        typer.echo(f"Errors ({len(preview.errors)}):", err=True)
+        for error in preview.errors:
+            typer.echo(f"  - {error}", err=True)
+
+
+def _preview_folder(folder_path: str) -> bool:
+    preview = load_folder_preview(folder_path)
+    _show_folder_preview(preview)
+    return not preview.errors
+
+
+async def _import_folder(folder_path: str, yes: bool = False) -> bool:
+    preview = load_folder_preview(folder_path)
+    _show_folder_preview(preview)
+    if preview.errors:
+        return False
+    if not yes:
+        if not sys.stdin.isatty():
+            typer.echo("Use --yes to create items without an interactive terminal.", err=True)
+            return False
+        if not typer.confirm("Create these work items in Jira?", default=False):
+            typer.echo("Import cancelled; no work items were created.")
+            return True
+
+    assert preview.epic is not None
     try:
-        if not os.path.isdir(folder_path):
-            raise NotADirectoryError(f"Folder not found: {folder_path}")
-        epic = parse_epic_markdown(os.path.join(folder_path, _EPIC_FILENAME))
-        stories = parse_stories_markdown(os.path.join(folder_path, _STORIES_FILENAME))
         provider = container.get_jira_provider()
-        issue_key = await provider.create_epic(epic)
+        issue_key = await provider.create_epic(preview.epic)
         typer.echo(f"Successfully created epic: {issue_key}")
     except Exception as error:
         typer.echo(f"Error importing folder: {error}", err=True)
         return False
 
     all_created = True
-    for story in stories:
+    for story_preview in preview.stories:
+        assert story_preview.item is not None
+        story = story_preview.item
         try:
             story_key = await provider.create_story(story, epic_key=issue_key)
             typer.echo(f"Successfully created story: {story_key} ({story.title})")
@@ -274,7 +327,7 @@ def _run_interactive_menu() -> None:
             message="Choose an action:",
             choices=[
                 _FETCH_EPIC, _FETCH_STORY, _LIST_STORIES, _LIST_ASSIGNED, _CREATE_EPIC,
-                _CREATE_STORY, _IMPORT_FOLDER, _EXIT,
+                _CREATE_STORY, _PREVIEW_FOLDER, _IMPORT_FOLDER, _EXIT,
             ],
         ).execute()
 
@@ -300,6 +353,11 @@ def _run_interactive_menu() -> None:
             elif choice == _CREATE_STORY:
                 key = inquirer.text(message="Parent epic key (e.g. PROJ-123):").execute()
                 asyncio.run(_create_story(key, _prompt_item(include_points=True)))
+            elif choice == _PREVIEW_FOLDER:
+                folder_path = inquirer.text(
+                    message="Folder containing epic.md and optional stories.md:"
+                ).execute()
+                _preview_folder(folder_path)
             elif choice == _IMPORT_FOLDER:
                 folder_path = inquirer.text(
                     message="Folder containing epic.md and optional stories.md:"

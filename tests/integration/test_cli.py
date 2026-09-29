@@ -1,9 +1,13 @@
+import asyncio
 import json
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 import respx
 import httpx
 from typer.testing import CliRunner
+from devworkwire.presentation.cli import main
 from devworkwire.presentation.cli.main import app, container
 from devworkwire.infrastructure.external.jira.jira_provider import JiraProvider
 from devworkwire.infrastructure.external.jira.settings import JiraSettings
@@ -50,8 +54,9 @@ def test_import_folder_cmd(mock_config, tmp_path):
         return_value=httpx.Response(200, json={"key": "PROJ-2"})
     )
 
-    result = runner.invoke(app, ["import-folder", str(tmp_path)])
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
     assert result.exit_code == 0
+    assert "Epic: New Epic" in result.stdout
     assert "Successfully created epic: PROJ-2" in result.stdout
 
 
@@ -79,11 +84,165 @@ def test_import_folder_cmd_with_stories(mock_config, tmp_path):
         ]
     )
 
-    result = runner.invoke(app, ["import-folder", str(tmp_path)])
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
     assert result.exit_code == 0
+    assert "Stories (1):" in result.stdout
+    assert "points=8" in result.stdout
     assert "Successfully created epic: PROJ-2" in result.stdout
     assert "Successfully created story: PROJ-3 (First Story)" in result.stdout
     assert json.loads(route.calls[1].request.content)["fields"]["customfield_99999"] == 8
+
+
+@respx.mock
+def test_preview_folder_shows_items_without_contacting_jira(monkeypatch, tmp_path):
+    (tmp_path / "epic.md").write_text(
+        "# Epic: Authentication\n**Priority**: High\n**Labels**: auth\n"
+    )
+    (tmp_path / "stories.md").write_text(
+        "### US-1: Login\n**Effort Estimate**: 5\n**Labels**: auth\n"
+    )
+    monkeypatch.setattr(container, "get_jira_provider", lambda: pytest.fail("Jira was contacted"))
+
+    result = runner.invoke(app, ["preview-folder", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Epic: Authentication" in result.stdout
+    assert "priority=High" in result.stdout
+    assert "Stories (1):" in result.stdout
+    assert "Login (stories.md:1)" in result.stdout
+    assert "points=5" in result.stdout
+    assert not respx.calls
+
+
+@respx.mock
+def test_preview_folder_allows_empty_stories_file(tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+    (tmp_path / "stories.md").write_text("")
+
+    result = runner.invoke(app, ["preview-folder", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Stories (0):" in result.stdout
+    assert not respx.calls
+
+
+@respx.mock
+def test_invalid_folder_reports_all_errors_before_any_creation(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic:\n**Labels**: bad label\n")
+    (tmp_path / "stories.md").write_text(
+        "### US-1: Login\n**Effort Estimate**: -2\n"
+        "### US-2:\n**Labels**: bad label\n"
+    )
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 1
+    assert "Epic: (missing or invalid)" in result.output
+    assert "Login (stories.md:1)" in result.output
+    assert "epic.md:1: Expected '# Epic: <title>' heading" in result.output
+    assert "epic.md:2: Label name cannot contain spaces" in result.output
+    assert "stories.md:2: Effort Estimate must be a nonnegative integer" in result.output
+    assert "stories.md:3: Expected '### <id>: <title>' heading" in result.output
+    assert "stories.md:4: Label name cannot contain spaces" in result.output
+    assert not route.called
+
+
+@respx.mock
+def test_preview_rejects_nonempty_stories_without_story_heading(tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+    (tmp_path / "stories.md").write_text("## US-1: Login\n")
+
+    result = runner.invoke(app, ["preview-folder", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "stories.md:1: Expected '### <id>: <title>' story heading" in result.output
+    assert not respx.calls
+
+
+@respx.mock
+def test_import_rejects_wrong_level_story_heading_after_valid_story(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+    (tmp_path / "stories.md").write_text(
+        "### US-1: Login\n## US-2: Logout\n"
+    )
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 1
+    assert "stories.md:2: Expected '### <id>: <title>' story heading" in result.output
+    assert not route.called
+
+
+@respx.mock
+def test_preview_rejects_blank_story_id(tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+    (tmp_path / "stories.md").write_text("###  : Login\n")
+
+    result = runner.invoke(app, ["preview-folder", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "stories.md:1: Expected '### <id>: <title>' heading" in result.output
+    assert not respx.calls
+
+
+@pytest.mark.parametrize("labels", ["", "auth,", ",auth"])
+@respx.mock
+def test_preview_rejects_empty_label_entries(tmp_path, labels):
+    (tmp_path / "epic.md").write_text(f"# Epic: Authentication\n**Labels**: {labels}\n")
+
+    result = runner.invoke(app, ["preview-folder", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "epic.md:2: Label name cannot be empty" in result.output
+    assert not respx.calls
+
+
+@respx.mock
+def test_import_folder_requires_yes_without_terminal(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Epic: Authentication" in result.output
+    assert "Use --yes" in result.output
+    assert not route.called
+
+
+@respx.mock
+def test_import_folder_interactive_confirmation_creates(mock_config, monkeypatch, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+    monkeypatch.setattr(main.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    confirm = MagicMock(return_value=True)
+    monkeypatch.setattr(main.typer, "confirm", confirm)
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+
+    assert asyncio.run(main._import_folder(str(tmp_path))) is True
+    confirm.assert_called_once()
+    assert route.call_count == 1
+
+
+def test_import_folder_interactive_cancellation_skips_jira(monkeypatch, tmp_path, capsys):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+    monkeypatch.setattr(main.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    confirm = MagicMock(return_value=False)
+    monkeypatch.setattr(main.typer, "confirm", confirm)
+    monkeypatch.setattr(container, "get_jira_provider", lambda: pytest.fail("Jira was contacted"))
+
+    assert asyncio.run(main._import_folder(str(tmp_path))) is True
+    confirm.assert_called_once()
+    assert "Import cancelled" in capsys.readouterr().out
 
 @respx.mock
 def test_fetch_epic_cmd_reports_error_when_jira_is_unavailable(mock_config):
@@ -98,7 +257,6 @@ def test_fetch_epic_cmd_reports_error_when_jira_is_unavailable(mock_config):
 def test_import_folder_cmd_reports_error_for_missing_folder(mock_config):
     result = runner.invoke(app, ["import-folder", "does-not-exist"])
     assert result.exit_code == 1
-    assert "Error importing folder:" in result.output
     assert "Folder not found" in result.output
 
 
@@ -106,7 +264,7 @@ def test_import_folder_cmd_reports_error_for_missing_folder(mock_config):
 def test_import_folder_cmd_reports_error_when_folder_has_no_epic_file(mock_config, tmp_path):
     result = runner.invoke(app, ["import-folder", str(tmp_path)])
     assert result.exit_code == 1
-    assert "Error importing folder:" in result.output
+    assert "epic.md:" in result.output
 
 
 @respx.mock
@@ -265,7 +423,7 @@ def test_import_folder_returns_failure_after_partial_story_creation(mock_config,
         httpx.Response(201, json={"key": "PROJ-3"}),
     ])
 
-    result = runner.invoke(app, ["import-folder", str(tmp_path)])
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
 
     assert result.exit_code == 1
     assert "Error creating story 'First'" in result.output

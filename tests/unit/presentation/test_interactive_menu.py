@@ -53,6 +53,16 @@ def test_key_and_folder_menu_actions(monkeypatch, choice, target):
     action.assert_awaited_once_with("PROJ-1")
 
 
+def test_preview_folder_menu_uses_read_only_action(monkeypatch):
+    _menu(monkeypatch, main._PREVIEW_FOLDER, ["work-items"])
+    preview = MagicMock()
+    monkeypatch.setattr(main, "_preview_folder", preview)
+
+    main._run_interactive_menu()
+
+    preview.assert_called_once_with("work-items")
+
+
 @pytest.mark.parametrize("entered,expected", [
     ("", None),
     ("   ", None),
