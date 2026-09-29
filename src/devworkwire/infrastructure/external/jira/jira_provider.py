@@ -99,8 +99,6 @@ class JiraProvider(WorkItemProvider):
         self._fetch_story_with_retry = retry(self._fetch_story)
         self._list_stories_with_retry = retry(self._list_stories)
         self._list_assigned_with_retry = retry(self._list_assigned_work_items)
-        self._create_epic_with_retry = retry(self._create_epic)
-        self._create_story_with_retry = retry(self._create_story)
 
     @property
     def _issue_url(self) -> str:
@@ -110,10 +108,11 @@ class JiraProvider(WorkItemProvider):
         return await self._fetch_epic_with_retry(key)
 
     async def create_epic(self, epic: Epic) -> str:
-        return await self._create_epic_with_retry(epic)
+        # Jira creation is not idempotent; retrying an uncertain response can duplicate issues.
+        return await self._create_epic(epic)
 
     async def create_story(self, story: UserStory, epic_key: str) -> str:
-        return await self._create_story_with_retry(story, epic_key)
+        return await self._create_story(story, epic_key)
 
     async def fetch_story(self, key: str) -> Optional[UserStory]:
         return await self._fetch_story_with_retry(key)

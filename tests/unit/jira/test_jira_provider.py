@@ -138,6 +138,28 @@ async def test_create_epic(provider):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_create_epic_does_not_retry_uncertain_server_response(settings):
+    retry_settings = JiraSettings(
+        base_url=settings.base_url,
+        username=settings.username,
+        api_token=settings.api_token,
+        project_key=settings.project_key,
+        max_retries=3,
+    )
+    route = respx.post("https://jira.example.com/rest/api/3/issue").mock(
+        return_value=httpx.Response(500)
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await JiraProvider(retry_settings).create_epic(
+            Epic.create(title="New Epic", description="")
+        )
+
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_create_story_links_to_parent_epic(provider):
     route = respx.post("https://jira.example.com/rest/api/3/issue").mock(
         return_value=httpx.Response(200, json={"key": "PROJ-4"})

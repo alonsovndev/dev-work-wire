@@ -1,3 +1,4 @@
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,7 +11,7 @@ from devworkwire.features.import_.application.markdown_parser import (
 )
 
 _EPIC_HEADING = re.compile(r"^# Epic:[ \t]*(\S.*)$", re.MULTILINE)
-_STORY_HEADING = re.compile(r"^###[ \t]+[^:\s][^:\n]*:[ \t]*(\S.*)$")
+_STORY_HEADING = re.compile(r"^###[ \t]+([^:\s][^:\n]*):[ \t]*(\S.*)$")
 _STORY_MARKER = re.compile(r"^###(?!#)[^\n]*$", re.MULTILINE)
 _WRONG_LEVEL_HEADING = re.compile(
     r"^#{1,2}(?!#)[^\n]*$|^#{4,6}[ \t]+[^:\n]+:[^\n]*$", re.MULTILINE
@@ -31,15 +32,18 @@ class ValidationIssue:
 
 @dataclass(frozen=True)
 class StoryPreview:
+    story_id: str
     title: str
     line: int
     item: UserStory | None
+    source_hash: str
 
 
 @dataclass(frozen=True)
 class FolderPreview:
     epic_title: str | None
     epic: Epic | None
+    epic_hash: str | None
     stories: list[StoryPreview]
     errors: list[ValidationIssue]
 
@@ -86,14 +90,16 @@ def preview_folder(folder_path: str) -> FolderPreview:
     stories: list[StoryPreview] = []
     epic: Epic | None = None
     epic_title: str | None = None
+    epic_hash: str | None = None
 
     if not folder.is_dir():
         errors.append(ValidationIssue(str(folder), None, "Folder not found"))
-        return FolderPreview(None, None, stories, errors)
+        return FolderPreview(None, None, None, stories, errors)
 
     epic_path = folder / "epic.md"
     epic_content = _read_file(epic_path, errors)
     if epic_content is not None:
+        epic_hash = hashlib.sha256(epic_content.encode("utf-8")).hexdigest()
         heading = _EPIC_HEADING.search(epic_content)
         if heading is None:
             errors.append(ValidationIssue("epic.md", 1, "Expected '# Epic: <title>' heading"))
@@ -126,6 +132,7 @@ def preview_folder(folder_path: str) -> FolderPreview:
                     errors.append(ValidationIssue(
                         "stories.md", line_number, "Expected '### <id>: <title>' story heading"
                     ))
+            story_ids: set[str] = set()
             for index, marker in enumerate(markers):
                 line_number = stories_content.count("\n", 0, marker.start()) + 1
                 block_end = markers[index + 1].start() if index + 1 < len(markers) else len(stories_content)
@@ -136,13 +143,24 @@ def preview_folder(folder_path: str) -> FolderPreview:
                 if heading is None:
                     errors.append(ValidationIssue("stories.md", line_number, "Expected '### <id>: <title>' heading"))
                     continue
-                title = heading.group(1).strip()
+                story_id = heading.group(1).strip()
+                title = heading.group(2).strip()
+                if story_id == "epic":
+                    errors.append(ValidationIssue(
+                        "stories.md", line_number, "Story ID 'epic' is reserved"
+                    ))
+                if story_id in story_ids:
+                    errors.append(ValidationIssue(
+                        "stories.md", line_number, f"Duplicate story ID: {story_id}"
+                    ))
+                story_ids.add(story_id)
                 story: UserStory | None = None
                 if len(errors) == error_count:
                     try:
                         story = _parse_story_block(title, block)
                     except (BusinessRuleViolation, ValueError) as error:
                         errors.append(ValidationIssue("stories.md", line_number, str(error)))
-                stories.append(StoryPreview(title, line_number, story))
+                source_hash = hashlib.sha256(block.encode("utf-8")).hexdigest()
+                stories.append(StoryPreview(story_id, title, line_number, story, source_hash))
 
-    return FolderPreview(epic_title, epic, stories, errors)
+    return FolderPreview(epic_title, epic, epic_hash, stories, errors)

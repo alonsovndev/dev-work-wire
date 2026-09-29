@@ -46,6 +46,9 @@ settings.yml
 
 # Local development
 .python-version
+.devworkwire-import.json
+.devworkwire-import.lock
+.devworkwire-import-*.tmp
 
 # Logs
 *.log
