@@ -18,7 +18,9 @@ def _patch_config(monkeypatch):
     fake_app_config.get_config.side_effect = lambda key, default=None: _CONFIG.get(key, default)
     monkeypatch.setattr("devworkwire.core.composition.AppConfig.instance", lambda: fake_app_config)
 
-    fake_project_config = MagicMock(project_key="PROJ")
+    fake_project_config = MagicMock(
+        project_key="PROJ", field_mappings={"story_points": "customfield_99999"}
+    )
     monkeypatch.setattr(
         "devworkwire.core.composition.ProjectConfig.load", lambda: fake_project_config
     )
@@ -34,6 +36,7 @@ def test_get_jira_provider_builds_settings_from_config(monkeypatch):
     assert provider.settings.project_key == "PROJ"
     assert provider.settings.timeout == 15
     assert provider.settings.max_retries == 2
+    assert provider.settings.story_points_field == "customfield_99999"
 
 
 def test_get_jira_provider_is_cached(monkeypatch):

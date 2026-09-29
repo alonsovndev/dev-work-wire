@@ -1,67 +1,81 @@
 # CLI Reference
 
-DevWorkWire provides a keyboard-navigable interactive menu, plus direct commands for scripting.
+DevWorkWire provides direct commands for scripts and an interactive menu for one-off work.
 
 ## Launching the CLI
 
 ```bash
-# Installed from PyPI (recommended via pipx)
+# Installed package
+
 dwire
 
-# From a source checkout: convenience script
+# Source checkout
 ./scripts/run-cli
 
-# Or directly as a module
+# Python module
 python -m devworkwire.presentation.cli
 ```
 
-Running `dwire` with no arguments prints the startup banner (logo, tagline, and a
-"Developed by alonsovndev · v{version}" legend) and starts the interactive menu.
-Running `dwire <command> ...` invokes that command directly and exits — no banner or
-menu shown.
+Running `dwire` without a command opens the menu. Direct commands run without the menu or banner.
 
 ## Interactive Menu
 
-Navigate with the arrow keys, press Enter to select.
-
-| Option | Description |
-|---|---|
-| **Retrieve an epic from Jira by key** | Prompts for a Jira issue key, fetches the epic, and prints its title and description |
-| **Create a new epic in Jira from a markdown file** | Prompts for a path to an epic Markdown file (see [Markdown Format](markdown-format.md)), parses it, and creates the issue |
-| **Exit** | Returns to the shell |
-
-After each action the menu is shown again; select **Exit** to leave.
+Use the arrow keys and Enter to choose an action. The menu can fetch an epic or story, list an epic's stories or a user's assigned work, create one epic or story, or import a folder. The assigned-work prompt accepts a Jira account ID; leave it blank for the authenticated user. Creation prompts for title, description, priority, and labels; story creation also prompts for an existing epic key and whole-number points. Labels are comma-separated in the menu. The menu returns after each action; choose **Exit** to leave.
 
 ## Direct Commands
 
-### `dwire fetch-epic KEY`
+### Create an epic
 
-Fetches an epic from Jira by key and prints its title and description.
+```bash
+dwire create-epic --title "Authentication" --description "Login and recovery" \
+  --priority High --label auth --label backend
+```
+
+`--title` is required. Description, priority, and repeatable `--label` are optional. This command creates exactly one epic.
+
+### Create a story
+
+```bash
+dwire create-story PROJ-123 --title "Log in" --description "A user can log in" \
+  --priority High --label auth --points 5
+```
+
+The positional key must identify an existing epic. `--title` is required; other options are optional. `--points` accepts a nonnegative whole number and uses the configured `field_mappings.story_points` Jira field.
+
+### Fetch an epic or story
 
 ```bash
 dwire fetch-epic PROJ-123
+dwire fetch-story PROJ-124
 ```
 
-### `dwire create-epic PATH`
+The detailed view shows key, title, description, priority, and labels when present. Story output also shows parent epic, status, and points when available. Fetch commands reject an issue of the wrong type.
 
-Parses a Markdown file (see [Markdown Format](markdown-format.md)) and creates the epic in Jira.
+### List an epic's stories
 
 ```bash
-dwire create-epic path/to/epic.md
+dwire list-stories PROJ-123
 ```
 
-## Error Handling
+Lists every story under the epic as key, title, and status. An empty epic prints a message and succeeds.
 
-Both commands catch errors and print `Error fetching epic: ...` / `Error creating epic: ...` to stderr rather than raising a traceback; the process exits `0` either way (this is a scripting convenience, not a signal to rely on for exit-code checks).
+### List work assigned to a user
 
-| Error | Cause | Solution |
-|---|---|---|
-| `ModuleNotFoundError` | Virtual environment not activated | Run `source .venv/bin/activate` |
-| Project config error | `devworkwire.yml` missing or invalid | Copy `devworkwire.example.yml` to `devworkwire.yml` and adjust `provider`/`project_key` |
-| `Error fetching epic: ...` (404-shaped message) | Epic not found | Verify the Jira key exists |
-| `Error fetching/creating epic: ...` (HTTP error) | Jira unreachable or credentials rejected | Check `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` in `.env` |
-| `Markdown file not found: ...` | Bad path passed to `create-epic` | Check the file path |
+```bash
+dwire list-assigned
+dwire list-assigned --assignee 557058:abcd-1234
+```
 
-## Roadmap
+Without `--assignee`, the command uses the authenticated Jira user. With it, supply a Jira account ID, not an email address or display name. The command lists open work in the configured project across all issue types, ordered by most recently updated. Each row shows key, issue type, title, and status. “Open” means the Jira status category is not Done. An empty result prints a message and succeeds.
 
-An import/preview/commit workflow with local state tracking (dedupe by content hash) existed in a prior iteration of this project and was reset during the current baseline reconstruction; it isn't available yet. `features/import_`, `features/progress`, and `features/workitem` are reserved packages for that and related work — see [Architecture Overview](../architecture/overview.md#planned-work).
+### Import a folder
+
+```bash
+dwire import-folder path/to/work-items
+```
+
+Reads required `epic.md` and optional `stories.md` from the folder (see [Markdown Format](markdown-format.md)). The epic is created first, then each story is linked to it. Story failures are reported individually and the remaining stories are attempted. This command replaces the former `create-epic FOLDER` form.
+
+## Exit Status and Errors
+
+Commands return `0` on success and a nonzero status for missing items, invalid input, Jira errors, or any failed story in a folder import. A partial import can therefore create some issues and still exit with failure; check the printed keys before retrying to avoid duplicates. Errors are printed to stderr. Configuration comes from `devworkwire.yml` and the Jira environment settings described in [Configuration](../getting-started/configuration.md).

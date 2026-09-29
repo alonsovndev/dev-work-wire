@@ -1,6 +1,6 @@
 # Markdown Format Specification
 
-`dwire create-epic <folder>` reads `epic.md` (required) and `stories.md` (optional)
+`dwire import-folder <folder>` reads `epic.md` (required) and `stories.md` (optional)
 from a folder via `parse_epic_markdown()` and `parse_stories_markdown()`
 (`features/import_/application/markdown_parser.py`). These are the only Markdown
 formats currently supported.
@@ -55,7 +55,7 @@ is a block starting with a `### <Story ID>: <Title>` heading:
 |---|---|---|
 | `### <id>: [Title]` | Yes (per block) | Story title |
 | `**Priority**:` | No | `Priority.from_jira_name()` |
-| `**Effort Estimate**:` | No | Integer, becomes `StoryPoints` (parsed for the domain entity only — not sent to Jira; no custom field is configured for it) |
+| `**Effort Estimate**:` | No | Nonnegative integer story points, sent to Jira using `field_mappings.story_points` |
 | `**Labels**:` | No | Same rules as the epic's `**Labels**:` |
 | `**As a**` / `**I want to**` / `**So that**` + `**Acceptance Criteria**:` | No | Composed into the story's `description` |
 

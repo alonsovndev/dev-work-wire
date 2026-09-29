@@ -89,11 +89,11 @@ def mock_config():
     container._jira_provider = None
 ```
 
-Cover both the success path and the error path (the CLI commands catch `Exception` and print `Error ...:` rather than raising, so assert on `result.output`, not just `exit_code`).
+Cover both success and error paths. Commands print errors to stderr and return a nonzero exit status, including when a folder import creates only some stories.
 
 ### Interactive Menu Tests
 
-The interactive menu (`presentation/cli/main.py::_run_interactive_menu`) is tested by monkeypatching `InquirerPy.inquirer.select`/`.text`/`.filepath` to return canned choices, and the `_fetch_epic`/`_create_epic` helpers with `unittest.mock.AsyncMock` — this verifies menu wiring (which prompt follows which choice, which helper gets called with what argument) without needing a real terminal. End-to-end keyboard behavior is verified manually against a pty (`script -q /dev/null dwire` or similar), not in the automated suite.
+The interactive menu (`presentation/cli/main.py::_run_interactive_menu`) is tested by monkeypatching `InquirerPy.inquirer.select`/`.text` to return canned choices, and the async action helpers with `unittest.mock.AsyncMock`. This verifies menu wiring without a real terminal. End-to-end keyboard behavior is verified manually against a pty (`script -q /dev/null dwire` or similar), not in the automated suite.
 
 ## Testing Conventions
 
