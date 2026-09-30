@@ -9,6 +9,7 @@ Welcome to the DevWorkWire documentation. Pick your path:
 | [Installation](getting-started/installation.md) | Prerequisites, clone, install, verify |
 | [Configuration](getting-started/configuration.md) | `.env` variables, YAML config, Jira API token |
 | [CLI Reference](guides/cli-reference.md) | All commands, interactive menu, scripting examples |
+| [AI Agent Skill](guides/ai-agent-skill.md) | Use the CLI from a terminal-capable AI tool |
 | [Markdown Format](guides/markdown-format.md) | Epic and user story template specification |
 
 ## For Developers

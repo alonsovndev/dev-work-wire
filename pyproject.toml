@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "alonsovndev" }]
 requires-python = ">=3.12"
-keywords = ["jira", "cli", "backlog", "epics", "user-stories", "mcp"]
+keywords = ["jira", "cli", "backlog", "epics", "user-stories", "agent-skills"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

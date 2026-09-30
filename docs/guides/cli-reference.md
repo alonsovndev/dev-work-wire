@@ -18,6 +18,35 @@ python -m devworkwire.presentation.cli
 
 Running `dwire` without a command opens the menu. Direct commands run without the menu or banner.
 
+## JSON output for tools and scripts
+
+Place `--format json` before any direct command to receive one JSON object on stdout.
+The interactive menu remains text-only. Diagnostic logs go to stderr. A failed command
+still exits nonzero, so scripts should check both the exit status and the JSON result.
+
+```bash
+dwire --format json fetch-story PROJ-124
+dwire --format json preview-folder path/to/work-items
+dwire --format json import-folder path/to/work-items --yes
+```
+
+Every result has `command`, `status`, `data`, and `error`. `error` is `null` on
+success; otherwise it contains a stable `code` and a human-readable `message`.
+Argument errors detected before a command runs use the `INVALID_ARGUMENT`
+code and still exit nonzero.
+`status` is `completed` for a successful read or write, `preview` for a valid
+read-only preview, `no_change` for an already imported folder, `error` for a
+failed command with no new items, or `partial` when an import created some items
+but did not complete. The `data` object contains work-item fields, a preview,
+or created keys as appropriate. Preview actions are `create`, `skip`, and
+`unresolved`; `changed: true` on a skipped item means its Markdown differs from
+the recorded upload, and the importer will **not** update that Jira item.
+
+JSON mode never prompts. `import-folder` requires `--yes` when it has work to
+create. Use it only for a user-authorized write; the CLI cannot inspect an AI
+agent's task approval. A `partial` result requires inspecting the created keys
+and unresolved state before retrying.
+
 ## Interactive Menu
 
 Use the arrow keys and Enter to choose an action. The menu can fetch an epic or story, list an epic's stories or a user's assigned work, create one epic or story, preview a folder, or import it after confirmation. The assigned-work prompt accepts a Jira account ID; leave it blank for the authenticated user. Creation prompts for title, description, priority, and labels; story creation also prompts for an existing epic key and whole-number points. Labels are comma-separated in the menu. The menu returns after each action; choose **Exit** to leave.
