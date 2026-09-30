@@ -1,14 +1,21 @@
 import asyncio
+import click
+import io
+import json
 import os
 import re
 import sys
+from contextlib import redirect_stderr, redirect_stdout
+from contextvars import ContextVar
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 import typer
 from InquirerPy import inquirer
+from typer.core import TyperGroup
 
 from devworkwire.core.composition import Container
 from devworkwire.core.domain import Epic, Label, Priority, StoryPoints, UserStory
@@ -24,8 +31,116 @@ from devworkwire.features.import_.application.folder_state import (
 from devworkwire.presentation.cli.banner import print_banner
 from devworkwire.presentation.cli.epic_panel import render_epic_panel, render_story_panel
 
-app = typer.Typer()
+class JsonTyperGroup(TyperGroup):
+    def main(self, args=None, prog_name=None, standalone_mode=True, **extra):
+        arguments = list(args) if args is not None else sys.argv[1:]
+        json_requested = any(
+            argument == "--format=json" or
+            argument == "--format" and index + 1 < len(arguments) and arguments[index + 1] == "json"
+            for index, argument in enumerate(arguments)
+        )
+        if not json_requested:
+            return super().main(
+                args=args, prog_name=prog_name, standalone_mode=standalone_mode, **extra
+            )
+        try:
+            outcome = super().main(
+                args=args, prog_name=prog_name, standalone_mode=False, **extra
+            )
+        except click.ClickException as error:
+            command = next(
+                (argument for argument in arguments if argument in self.commands), None
+            )
+            typer.echo(json.dumps({
+                "command": command,
+                "status": "error",
+                "data": {},
+                "error": {"code": "INVALID_ARGUMENT", "message": error.format_message()},
+            }))
+            outcome = error.exit_code
+        if standalone_mode:
+            raise SystemExit(outcome if isinstance(outcome, int) else 0)
+        return outcome
+
+
+app = typer.Typer(cls=JsonTyperGroup)
 container = Container()
+
+
+class OutputFormat(str, Enum):
+    text = "text"
+    json = "json"
+
+
+@dataclass
+class CommandResult:
+    status: str = "completed"
+    data: dict | None = None
+    error_code: str = "COMMAND_FAILED"
+
+
+_output_format: ContextVar[OutputFormat] = ContextVar("output_format", default=OutputFormat.text)
+_command_result: ContextVar[CommandResult | None] = ContextVar("command_result", default=None)
+
+
+def _record(status: str, data: dict, error_code: str = "COMMAND_FAILED") -> None:
+    result = _command_result.get()
+    if result is not None:
+        result.status = status
+        result.data = data
+        result.error_code = error_code
+
+
+def _created(item_type: str, key: str, story_id: str | None = None) -> None:
+    result = _command_result.get()
+    if result is not None:
+        if result.data is None:
+            result.data = {}
+        item = {"type": item_type, "key": key}
+        if story_id is not None:
+            item["story_id"] = story_id
+        result.data.setdefault("created", []).append(item)
+
+
+def _run_command(command: str, action: Callable[[], bool]) -> None:
+    if _output_format.get() == OutputFormat.text:
+        if not action():
+            raise typer.Exit(code=1)
+        return
+
+    result = CommandResult()
+    token = _command_result.set(result)
+    standard_output = io.StringIO()
+    standard_error = io.StringIO()
+    try:
+        with redirect_stdout(standard_output), redirect_stderr(standard_error):
+            succeeded = action()
+    finally:
+        _command_result.reset(token)
+    if standard_error.getvalue():
+        sys.stderr.write(standard_error.getvalue())
+    if not succeeded:
+        result.status = "partial" if result.data and result.data.get("created") else "error"
+    messages = [line.strip() for line in standard_error.getvalue().splitlines() if line.strip()]
+    if not messages:
+        messages = [line.strip() for line in standard_output.getvalue().splitlines() if line.strip()]
+    message = next(
+        (line for line in messages if line.startswith(("Error ", "Use --yes", "Choose exactly"))),
+        messages[0] if messages else "Command failed",
+    )
+    payload = {
+        "command": command,
+        "status": result.status,
+        "data": result.data or {},
+        "error": None if succeeded else {
+            "code": result.error_code,
+            "message": message,
+        },
+    }
+    typer.echo(json.dumps(payload, ensure_ascii=False))
+    if not succeeded:
+        raise typer.Exit(code=1)
+
 
 _FETCH_EPIC = "Retrieve an epic from Jira by key"
 _FETCH_STORY = "Retrieve a story from Jira by key"
@@ -55,29 +170,83 @@ def _labels(values: tuple[str, ...]) -> list[Label]:
     return [Label(name=value.strip()) for value in values]
 
 
+def _epic_data(epic: Epic) -> dict:
+    return {
+        "key": epic.issue_id.key if epic.issue_id else None,
+        "title": epic.title,
+        "description": epic.description,
+        "priority": epic.priority.name if epic.priority else None,
+        "labels": [label.name for label in epic.labels],
+    }
+
+
+def _story_data(story: UserStory) -> dict:
+    return {
+        "key": story.issue_id.key if story.issue_id else None,
+        "title": story.title,
+        "description": story.description,
+        "priority": story.priority.name if story.priority else None,
+        "labels": [label.name for label in story.labels],
+        "points": story.story_points.value if story.story_points else None,
+        "epic_key": story.epic_key,
+        "status": story.status,
+    }
+
+
+def _preview_data(preview: FolderPreview, state: ImportState | None) -> dict:
+    stories = []
+    for story in preview.stories:
+        record = state.stories.get(story.story_id) if state else None
+        stories.append({
+            "id": story.story_id,
+            "title": story.title,
+            "line": story.line,
+            "action": "create" if record is None else "unresolved" if record.status == "pending" else "skip",
+            "key": record.key if record else None,
+            "changed": record.source_hash != story.source_hash if record else False,
+            "item": _story_data(story.item) if story.item else None,
+        })
+    epic_record = state.epic if state else None
+    return {
+        "epic": {
+            "title": preview.epic_title,
+            "action": "create" if epic_record is None else "unresolved" if epic_record.status == "pending" else "skip",
+            "key": epic_record.key if epic_record else None,
+            "changed": epic_record.source_hash != preview.epic_hash if epic_record else False,
+            "item": _epic_data(preview.epic) if preview.epic else None,
+        },
+        "stories": stories,
+        "missing_story_ids": sorted(_missing_story_ids(preview, state)) if state else [],
+        "errors": [{"file": error.file, "line": error.line, "message": error.message} for error in preview.errors],
+    }
+
+
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context) -> None:
+def main(
+    ctx: typer.Context,
+    output_format: OutputFormat = typer.Option(OutputFormat.text, "--format"),
+) -> None:
     """DevWorkWire CLI. Run without a subcommand for the interactive menu."""
+    _output_format.set(output_format)
     if ctx.invoked_subcommand is None:
+        if output_format == OutputFormat.json:
+            raise typer.BadParameter("JSON output requires a direct command", param_hint="--format")
         _run_interactive_menu()
 
 
 @app.command("fetch-epic")
 def fetch_epic(key: str) -> None:
-    if not asyncio.run(_fetch_epic(key)):
-        raise typer.Exit(code=1)
+    _run_command("fetch-epic", lambda: asyncio.run(_fetch_epic(key)))
 
 
 @app.command("fetch-story")
 def fetch_story(key: str) -> None:
-    if not asyncio.run(_fetch_story(key)):
-        raise typer.Exit(code=1)
+    _run_command("fetch-story", lambda: asyncio.run(_fetch_story(key)))
 
 
 @app.command("list-stories")
 def list_stories(epic_key: str) -> None:
-    if not asyncio.run(_list_stories(epic_key)):
-        raise typer.Exit(code=1)
+    _run_command("list-stories", lambda: asyncio.run(_list_stories(epic_key)))
 
 
 @app.command("list-assigned")
@@ -85,8 +254,7 @@ def list_assigned(
     assignee: Optional[str] = typer.Option(None, "--assignee")
 ) -> None:
     """List open work assigned to the current user or a Jira account ID."""
-    if not asyncio.run(_list_assigned(assignee)):
-        raise typer.Exit(code=1)
+    _run_command("list-assigned", lambda: asyncio.run(_list_assigned(assignee)))
 
 
 @app.command("create-epic")
@@ -98,8 +266,7 @@ def create_epic(
 ) -> None:
     """Create one epic. Repeat --label to add multiple labels."""
     item = WorkItemInput(title, description, priority, tuple(labels))
-    if not asyncio.run(_create_epic(item)):
-        raise typer.Exit(code=1)
+    _run_command("create-epic", lambda: asyncio.run(_create_epic(item)))
 
 
 @app.command("create-story")
@@ -113,8 +280,7 @@ def create_story(
 ) -> None:
     """Create one story under an existing epic."""
     item = WorkItemInput(title, description, priority, tuple(labels), points)
-    if not asyncio.run(_create_story(epic_key, item)):
-        raise typer.Exit(code=1)
+    _run_command("create-story", lambda: asyncio.run(_create_story(epic_key, item)))
 
 
 @app.command("import-folder")
@@ -123,15 +289,13 @@ def import_folder(
     yes: bool = typer.Option(False, "--yes", help="Create without an interactive confirmation"),
 ) -> None:
     """Upload epic.md and optional stories.md from a folder."""
-    if not asyncio.run(_import_folder(folder_path, yes=yes)):
-        raise typer.Exit(code=1)
+    _run_command("import-folder", lambda: asyncio.run(_import_folder(folder_path, yes=yes)))
 
 
 @app.command("preview-folder")
 def preview_folder(folder_path: str) -> None:
     """Show local work items and validation errors without contacting Jira."""
-    if not _preview_folder(folder_path):
-        raise typer.Exit(code=1)
+    _run_command("preview-folder", lambda: _preview_folder(folder_path))
 
 
 @app.command("resolve-import")
@@ -142,25 +306,25 @@ def resolve_import(
     retry: bool = typer.Option(False, "--retry", help="Clear a confirmed absent attempt"),
 ) -> None:
     """Resolve an uncertain import after checking Jira."""
-    if (key is None and not retry) or (key is not None and retry):
-        typer.echo("Choose exactly one of --key or --retry.", err=True)
-        raise typer.Exit(code=1)
-    if not asyncio.run(_resolve_import(folder_path, item, key, retry)):
-        raise typer.Exit(code=1)
+    def action() -> bool:
+        if (key is None and not retry) or (key is not None and retry):
+            typer.echo("Choose exactly one of --key or --retry.", err=True)
+            return False
+        return asyncio.run(_resolve_import(folder_path, item, key, retry))
+
+    _run_command("resolve-import", action)
 
 
 @app.command("rebind-import-story")
 def rebind_import_story(folder_path: str, old_id: str, new_id: str) -> None:
     """Keep a recorded Jira key when a story heading ID changes."""
-    if not _reconcile_missing_story(folder_path, old_id, new_id):
-        raise typer.Exit(code=1)
+    _run_command("rebind-import-story", lambda: _reconcile_missing_story(folder_path, old_id, new_id))
 
 
 @app.command("retire-import-story")
 def retire_import_story(folder_path: str, story_id: str) -> None:
     """Remove a recorded story that is no longer in stories.md."""
-    if not _reconcile_missing_story(folder_path, story_id, None):
-        raise typer.Exit(code=1)
+    _run_command("retire-import-story", lambda: _reconcile_missing_story(folder_path, story_id, None))
 
 
 async def _fetch_epic(key: str) -> bool:
@@ -168,7 +332,9 @@ async def _fetch_epic(key: str) -> bool:
         epic = await container.get_jira_provider().fetch_epic(key)
         if epic is None:
             typer.echo(f"Epic {key} not found.", err=True)
+            _record("error", {"key": key}, "NOT_FOUND")
             return False
+        _record("completed", {"epic": _epic_data(epic)})
         typer.secho(render_epic_panel(epic), fg=typer.colors.CYAN)
         return True
     except Exception as error:
@@ -181,7 +347,9 @@ async def _fetch_story(key: str) -> bool:
         story = await container.get_jira_provider().fetch_story(key)
         if story is None:
             typer.echo(f"Story {key} not found.", err=True)
+            _record("error", {"key": key}, "NOT_FOUND")
             return False
+        _record("completed", {"story": _story_data(story)})
         typer.secho(render_story_panel(story), fg=typer.colors.CYAN)
         return True
     except Exception as error:
@@ -194,8 +362,10 @@ async def _list_stories(epic_key: str) -> bool:
         provider = container.get_jira_provider()
         if await provider.fetch_epic(epic_key) is None:
             typer.echo(f"Epic {epic_key} not found.", err=True)
+            _record("error", {"epic_key": epic_key}, "NOT_FOUND")
             return False
         stories = await provider.list_stories(epic_key)
+        _record("completed", {"epic_key": epic_key, "stories": [_story_data(story) for story in stories]})
         if not stories:
             typer.echo(f"No stories found in epic {epic_key}.")
             return True
@@ -211,6 +381,10 @@ async def _list_stories(epic_key: str) -> bool:
 async def _list_assigned(account_id: str | None) -> bool:
     try:
         work_items = await container.get_jira_provider().list_assigned_work_items(account_id)
+        _record("completed", {"assignee": account_id or "me", "items": [
+            {"key": item.key, "issue_type": item.issue_type, "title": item.title, "status": item.status}
+            for item in work_items
+        ]})
         if not work_items:
             typer.echo("No open work items assigned to this user in the configured project.")
             return True
@@ -234,6 +408,7 @@ async def _create_epic(item: WorkItemInput) -> bool:
             labels=_labels(item.labels),
         )
         issue_key = await container.get_jira_provider().create_epic(epic)
+        _record("completed", {"key": issue_key, "type": "epic"})
         typer.echo(f"Successfully created epic: {issue_key}")
         return True
     except Exception as error:
@@ -253,8 +428,10 @@ async def _create_story(epic_key: str, item: WorkItemInput) -> bool:
         provider = container.get_jira_provider()
         if await provider.fetch_epic(epic_key) is None:
             typer.echo(f"Epic {epic_key} not found.", err=True)
+            _record("error", {"epic_key": epic_key}, "NOT_FOUND")
             return False
         issue_key = await provider.create_story(story, epic_key=epic_key)
+        _record("completed", {"key": issue_key, "type": "story", "epic_key": epic_key})
         typer.echo(f"Successfully created story: {issue_key}")
         return True
     except Exception as error:
@@ -263,6 +440,7 @@ async def _create_story(epic_key: str, item: WorkItemInput) -> bool:
 
 
 def _show_folder_preview(preview: FolderPreview, state: ImportState | None = None) -> None:
+    _record("preview", _preview_data(preview, state), "VALIDATION_FAILED")
     typer.echo(f"Epic: {preview.epic_title or '(missing or invalid)'}")
     if state is not None:
         _show_item_status("epic", state.epic, preview.epic_hash)
@@ -371,6 +549,9 @@ async def _import_locked(folder: Path, yes: bool) -> bool:
     _show_folder_preview(preview, state)
     if preview.errors or _has_pending(state):
         return False
+    result = _command_result.get()
+    if result is not None:
+        result.error_code = "IMPORT_FAILED"
     if _missing_story_ids(preview, state):
         typer.echo(
             "Rebind or retire missing story IDs before importing new items.", err=True
@@ -389,13 +570,16 @@ async def _import_locked(folder: Path, yes: bool) -> bool:
     if state.epic is not None and all(
         story.story_id in state.stories for story in preview.stories
     ):
+        _record("no_change", _preview_data(preview, state))
         typer.echo("All work items are already uploaded.")
         return True
     if not yes:
-        if not sys.stdin.isatty():
+        if _output_format.get() == OutputFormat.json or not sys.stdin.isatty():
             typer.echo("Use --yes to create items without an interactive terminal.", err=True)
+            _record("error", _preview_data(preview, state), "CONFIRMATION_REQUIRED")
             return False
         if not typer.confirm("Create these work items in Jira?", default=False):
+            _record("cancelled", _preview_data(preview, state))
             typer.echo("Import cancelled; no work items were created.")
             return True
 
@@ -413,6 +597,7 @@ async def _import_locked(folder: Path, yes: bool) -> bool:
         try:
             state.save()
             issue_key = await provider.create_epic(preview.epic)
+            _created("epic", issue_key)
             state.epic = ItemRecord("created", preview.epic_hash, issue_key)
             state.save()
             typer.echo(f"Successfully created epic: {issue_key}")
@@ -433,6 +618,7 @@ async def _import_locked(folder: Path, yes: bool) -> bool:
         try:
             state.save()
             story_key = await provider.create_story(story_preview.item, epic_key=state.epic.key)
+            _created("story", story_key, story_preview.story_id)
             state.stories[story_preview.story_id] = ItemRecord(
                 "created", story_preview.source_hash, story_key
             )
@@ -451,6 +637,10 @@ async def _import_locked(folder: Path, yes: bool) -> bool:
                 continue
             typer.echo("Uncertain Jira outcome; resolve this item before retrying.", err=True)
             return False
+    if all_created:
+        result = _command_result.get()
+        if result is not None:
+            result.status = "completed"
     return all_created
 
 
@@ -493,6 +683,7 @@ async def _resolve_import(folder_path: str, item: str, key: str | None, retry: b
                     state.stories[item] = resolved
             state.save()
         typer.echo(f"Resolved {item}: {'ready to retry' if retry else key}")
+        _record("completed", {"item": item, "key": key, "action": "retry" if retry else "bind"})
         return True
     except Exception as error:
         typer.echo(f"Error resolving import: {error}", err=True)
@@ -521,6 +712,7 @@ def _reconcile_missing_story(folder_path: str, old_id: str, new_id: str | None) 
             state.save()
         action = f"rebound to {new_id}" if new_id is not None else "retired"
         typer.echo(f"Story {old_id} {action}.")
+        _record("completed", {"story_id": old_id, "new_story_id": new_id})
         return True
     except Exception as error:
         typer.echo(f"Error reconciling import: {error}", err=True)

@@ -852,3 +852,117 @@ def test_list_assigned_cmd_returns_failure_for_invalid_account_id(mock_config):
     assert result.exit_code == 1
     assert "Invalid Jira account ID" in result.output
     assert not route.called
+
+
+@respx.mock
+def test_json_fetch_epic_returns_structured_item(mock_config):
+    respx.get("https://jira.test/rest/api/3/issue/PROJ-1").mock(
+        return_value=httpx.Response(200, json={
+            "key": "PROJ-1",
+            "fields": {"issuetype": {"name": "Epic"}, "summary": "Authentication"},
+        })
+    )
+
+    result = runner.invoke(app, ["--format", "json", "fetch-epic", "PROJ-1"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "command": "fetch-epic", "status": "completed",
+        "data": {"epic": {
+            "key": "PROJ-1", "title": "Authentication", "description": "",
+            "priority": None, "labels": [],
+        }}, "error": None,
+    }
+
+
+@respx.mock
+def test_json_create_epic_returns_key(mock_config):
+    respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-5"})
+    )
+
+    result = runner.invoke(app, ["--format", "json", "create-epic", "--title", "Login"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["data"] == {"key": "PROJ-5", "type": "epic"}
+
+
+def test_json_preview_reports_validation_errors(tmp_path):
+    result = runner.invoke(app, ["--format", "json", "preview-folder", str(tmp_path)])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "VALIDATION_FAILED"
+    assert payload["data"]["errors"][0]["file"] == "epic.md"
+
+
+def test_json_preview_includes_content_without_jira(monkeypatch, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n**Epic Description:**\nLogin scope\n")
+    monkeypatch.setattr(container, "get_jira_provider", lambda: pytest.fail("Jira was contacted"))
+
+    result = runner.invoke(app, ["--format", "json", "preview-folder", str(tmp_path)])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "preview"
+    assert payload["data"]["epic"]["action"] == "create"
+    assert payload["data"]["epic"]["item"]["description"] == "Login scope"
+    assert payload["error"] is None
+
+
+@respx.mock
+def test_json_import_reports_created_and_no_change(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+
+    first = runner.invoke(app, ["--format", "json", "import-folder", str(tmp_path), "--yes"])
+    second = runner.invoke(app, ["--format", "json", "import-folder", str(tmp_path), "--yes"])
+
+    assert first.exit_code == second.exit_code == 0
+    assert json.loads(first.stdout)["status"] == "completed"
+    assert json.loads(first.stdout)["data"]["created"] == [{"type": "epic", "key": "PROJ-1"}]
+    assert json.loads(second.stdout)["status"] == "no_change"
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_json_import_reports_partial_result(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+    (tmp_path / "stories.md").write_text("### US-1: First\n")
+    respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}),
+        httpx.Response(400, json={"errorMessages": ["Invalid story"]}),
+    ])
+
+    result = runner.invoke(app, ["--format", "json", "import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "partial"
+    assert payload["data"]["created"] == [{"type": "epic", "key": "PROJ-1"}]
+    assert payload["error"]["message"].startswith("Error creating story")
+
+
+def test_json_import_requires_explicit_yes(tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: Authentication\n")
+
+    result = runner.invoke(app, ["--format", "json", "import-folder", str(tmp_path)])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["error"]["code"] == "CONFIRMATION_REQUIRED"
+    assert payload["data"]["epic"]["action"] == "create"
+
+
+def test_json_mode_reports_argument_errors():
+    result = runner.invoke(app, ["--format", "json", "create-epic"])
+
+    assert result.exit_code != 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "create-epic"
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "INVALID_ARGUMENT"
+    assert "--title" in payload["error"]["message"]
