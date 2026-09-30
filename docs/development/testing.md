@@ -93,7 +93,7 @@ Cover both success and error paths. Commands print errors to stderr and return a
 
 ### Interactive Menu Tests
 
-The interactive menu (`presentation/cli/main.py::_run_interactive_menu`) is tested by monkeypatching `InquirerPy.inquirer.select`/`.text` to return canned choices, and the async action helpers with `unittest.mock.AsyncMock`. This verifies menu wiring without a real terminal. End-to-end keyboard behavior is verified manually against a pty (`script -q /dev/null dwire` or similar), not in the automated suite.
+The interactive menu (`presentation/cli/main.py::_run_interactive_menu`) is tested by monkeypatching its menu selection and `InquirerPy.inquirer.text` prompts, and the async action helpers with `unittest.mock.AsyncMock`. The screen renderer and keyboard shortcuts have focused tests in `test_menu_view.py`. End-to-end keyboard behavior is also verified manually against a pty (`script -q /dev/null dwire` or similar).
 
 ## Testing Conventions
 

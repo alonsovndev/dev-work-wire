@@ -8,7 +8,7 @@ import typer
 
 _LOGO_TEXT = "DWIRE"
 _LOGO_FONT = "ansi_shadow"
-_TAGLINE = "Jira Backlog Automation Assistant"
+_TAGLINE = "Backlog Workflow Assistant"
 _AUTHOR = "alonsovndev"
 
 

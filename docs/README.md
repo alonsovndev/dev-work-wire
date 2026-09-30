@@ -35,7 +35,7 @@ devworkwire/
 
 | Component | Technology |
 |-----------|------------|
-| CLI | Typer + InquirerPy (interactive menu) |
+| CLI | Typer + prompt-toolkit menu + InquirerPy prompts |
 | API Client | httpx (async) |
 | Config | python-dotenv + pyaml-env |
 | Testing | pytest + pytest-asyncio + respx |

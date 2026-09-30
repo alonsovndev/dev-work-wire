@@ -49,7 +49,9 @@ and unresolved state before retrying.
 
 ## Interactive Menu
 
-Use the arrow keys and Enter to choose an action. The menu can fetch an epic or story, list an epic's stories or a user's assigned work, create one epic or story, preview a folder, or import it after confirmation. The assigned-work prompt accepts a Jira account ID; leave it blank for the authenticated user. Creation prompts for title, description, priority, and labels; story creation also prompts for an existing epic key and whole-number points. Labels are comma-separated in the menu. The menu returns after each action; choose **Exit** to leave.
+Use the arrow keys and Enter to choose an action, or press its number (`1`–`8`) to select it directly. Press `?` for keyboard help. Esc leaves the main menu or returns from help; `0` selects **Exit**. The layout adapts to smaller terminals.
+
+The menu can retrieve an epic or story, list an epic's stories or a user's assigned work, create one epic or story, preview a folder, or import it after confirmation. The assigned-work prompt accepts the provider's account ID; leave it blank for the authenticated user. Creation prompts for title, description, priority, and labels; story creation also prompts for an existing epic key and whole-number points. Labels are comma-separated in the menu. The menu returns after each action.
 
 ## Direct Commands
 
