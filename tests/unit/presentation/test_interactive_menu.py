@@ -14,11 +14,7 @@ def _prompt(value):
 def _menu(monkeypatch, choice, answers):
     selected = iter([choice, main._EXIT])
     entered = iter(answers)
-    monkeypatch.setattr(main, "_clear_screen", lambda: None)
-    monkeypatch.setattr(main, "print_banner", lambda: None)
-    monkeypatch.setattr(
-        main.inquirer, "select", MagicMock(side_effect=lambda **_: _prompt(next(selected)))
-    )
+    monkeypatch.setattr(main, "run_menu", MagicMock(side_effect=lambda *_: next(selected)))
     monkeypatch.setattr(
         main.inquirer, "text", MagicMock(side_effect=lambda **_: _prompt(next(entered)))
     )
@@ -26,9 +22,7 @@ def _menu(monkeypatch, choice, answers):
 
 
 def test_exit_choice_stops_the_menu_without_calling_any_action(monkeypatch):
-    monkeypatch.setattr(main, "_clear_screen", lambda: None)
-    monkeypatch.setattr(main, "print_banner", lambda: None)
-    monkeypatch.setattr(main.inquirer, "select", MagicMock(return_value=_prompt(main._EXIT)))
+    monkeypatch.setattr(main, "run_menu", MagicMock(return_value=main._EXIT))
     fetch = AsyncMock()
     monkeypatch.setattr(main, "_fetch_epic", fetch)
 

@@ -2,7 +2,6 @@ import asyncio
 import click
 import io
 import json
-import os
 import re
 import sys
 from contextlib import redirect_stderr, redirect_stdout
@@ -28,8 +27,8 @@ from devworkwire.features.import_.application.folder_state import (
     ItemRecord,
     lock_folder,
 )
-from devworkwire.presentation.cli.banner import print_banner
 from devworkwire.presentation.cli.epic_panel import render_epic_panel, render_story_panel
+from devworkwire.presentation.cli.menu_view import MenuGroup, MenuOption, run_menu
 
 class JsonTyperGroup(TyperGroup):
     def main(self, args=None, prog_name=None, standalone_mode=True, **extra):
@@ -142,15 +141,42 @@ def _run_command(command: str, action: Callable[[], bool]) -> None:
         raise typer.Exit(code=1)
 
 
-_FETCH_EPIC = "Retrieve an epic from Jira by key"
-_FETCH_STORY = "Retrieve a story from Jira by key"
-_LIST_STORIES = "List stories in an epic"
-_LIST_ASSIGNED = "List open work assigned to a user"
-_CREATE_EPIC = "Create one epic in Jira"
-_CREATE_STORY = "Create one story in an existing epic"
-_PREVIEW_FOLDER = "Preview and validate a folder"
-_IMPORT_FOLDER = "Import an epic and its stories from a folder"
+_FETCH_EPIC = "Retrieve epic by key"
+_FETCH_STORY = "Retrieve story by key"
+_LIST_STORIES = "List stories in epic"
+_LIST_ASSIGNED = "List assigned open work"
+_CREATE_EPIC = "Create epic"
+_CREATE_STORY = "Create story in epic"
+_PREVIEW_FOLDER = "Preview and validate folder"
+_IMPORT_FOLDER = "Import epic and stories from folder"
 _EXIT = "Exit"
+
+_MENU_GROUPS = (
+    MenuGroup(
+        "WORK ITEMS", "Browse existing\nwork items", "◆", "#27baff",
+        (
+            MenuOption("1", _FETCH_EPIC, _FETCH_EPIC),
+            MenuOption("2", _FETCH_STORY, _FETCH_STORY),
+            MenuOption("3", _LIST_STORIES, _LIST_STORIES),
+            MenuOption("4", _LIST_ASSIGNED, _LIST_ASSIGNED),
+        ),
+    ),
+    MenuGroup(
+        "CREATE", "Add individual\nwork items", "+", "#00e587",
+        (
+            MenuOption("5", _CREATE_EPIC, _CREATE_EPIC),
+            MenuOption("6", _CREATE_STORY, _CREATE_STORY),
+        ),
+    ),
+    MenuGroup(
+        "IMPORT", "Load work items\nfrom a folder", "↑", "#ffae00",
+        (MenuOption("7", _IMPORT_FOLDER, _IMPORT_FOLDER),),
+    ),
+    MenuGroup(
+        "LOCAL", "Check files before\nimporting", "▣", "#b05bff",
+        (MenuOption("8", _PREVIEW_FOLDER, _PREVIEW_FOLDER),),
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -719,14 +745,6 @@ def _reconcile_missing_story(folder_path: str, old_id: str, new_id: str | None) 
         return False
 
 
-def _clear_screen() -> None:
-    if os.name == "nt":
-        os.system("cls")
-    else:
-        sys.stdout.write("\033[2J\033[1;1H")
-        sys.stdout.flush()
-
-
 def _prompt_item(include_points: bool = False) -> WorkItemInput:
     title = inquirer.text(message="Title:").execute()
     description = inquirer.text(message="Description (optional):").execute()
@@ -746,31 +764,23 @@ def _prompt_item(include_points: bool = False) -> WorkItemInput:
 def _run_interactive_menu() -> None:
     """Keyboard-navigable main menu, shown when `dwire` has no subcommand."""
     while True:
-        _clear_screen()
-        print_banner()
-        choice = inquirer.select(
-            message="Choose an action:",
-            choices=[
-                _FETCH_EPIC, _FETCH_STORY, _LIST_STORIES, _LIST_ASSIGNED, _CREATE_EPIC,
-                _CREATE_STORY, _PREVIEW_FOLDER, _IMPORT_FOLDER, _EXIT,
-            ],
-        ).execute()
+        choice = run_menu(_MENU_GROUPS, _EXIT)
 
         if choice == _EXIT:
             break
         try:
             if choice == _FETCH_EPIC:
-                key = inquirer.text(message="Jira epic key (e.g. PROJ-123):").execute()
+                key = inquirer.text(message="Epic key (e.g. PROJ-123):").execute()
                 asyncio.run(_fetch_epic(key))
             elif choice == _FETCH_STORY:
-                key = inquirer.text(message="Jira story key (e.g. PROJ-124):").execute()
+                key = inquirer.text(message="Story key (e.g. PROJ-124):").execute()
                 asyncio.run(_fetch_story(key))
             elif choice == _LIST_STORIES:
-                key = inquirer.text(message="Jira epic key (e.g. PROJ-123):").execute()
+                key = inquirer.text(message="Epic key (e.g. PROJ-123):").execute()
                 asyncio.run(_list_stories(key))
             elif choice == _LIST_ASSIGNED:
                 account_id = inquirer.text(
-                    message="Jira account ID (leave blank for current user):"
+                    message="Account ID (leave blank for current user):"
                 ).execute().strip()
                 asyncio.run(_list_assigned(account_id or None))
             elif choice == _CREATE_EPIC:

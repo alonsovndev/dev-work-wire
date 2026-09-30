@@ -38,7 +38,7 @@ src/devworkwire/
 
 ```mermaid
 graph TD
-    CLI[CLI - Typer + InquirerPy] --> Container[Container - composition root]
+    CLI[CLI - Typer + prompt-toolkit + InquirerPy] --> Container[Container - composition root]
     Container --> Provider[JiraProvider]
     CLI --> Domain[Epic / UserStory]
     Provider --> Port[WorkItemProvider port]
@@ -97,7 +97,7 @@ outcomes stop the import for manual resolution.
 
 ## Presentation (`presentation/cli/main.py`)
 
-A Typer app with direct commands for individual epic/story creation and retrieval, story and assigned-work listing, and folder import, plus an interactive, keyboard-navigable menu (built with `InquirerPy`) shown when `dwire` is invoked with no subcommand. Both paths call the same async action helpers. Direct commands support `--format json` for tools and scripts. `import-folder` expects `epic.md` (required) and `stories.md` (optional) — see [Markdown Format Specification](../guides/markdown-format.md).
+A Typer app with direct commands for individual epic/story creation and retrieval, story and assigned-work listing, and folder import, plus an interactive, keyboard-navigable menu built with `prompt-toolkit` and InquirerPy input prompts. The menu appears when `dwire` is invoked with no subcommand. Both paths call the same async action helpers. Direct commands support `--format json` for tools and scripts. `import-folder` expects `epic.md` (required) and `stories.md` (optional) — see [Markdown Format Specification](../guides/markdown-format.md).
 
 ## Planned Work
 
