@@ -23,12 +23,35 @@ def _menu(monkeypatch, choice, answers):
 
 def test_exit_choice_stops_the_menu_without_calling_any_action(monkeypatch):
     monkeypatch.setattr(main, "run_menu", MagicMock(return_value=main._EXIT))
+    clear = MagicMock()
+    monkeypatch.setattr(main.click, "clear", clear)
     fetch = AsyncMock()
     monkeypatch.setattr(main, "_fetch_epic", fetch)
 
     main._run_interactive_menu()
 
     fetch.assert_not_called()
+    clear.assert_not_called()
+
+
+def test_selection_clears_before_prompt_and_result(monkeypatch):
+    events = []
+    selected = iter([main._FETCH_STORY, main._EXIT])
+    monkeypatch.setattr(
+        main, "run_menu", lambda *_: events.append("menu") or next(selected)
+    )
+    monkeypatch.setattr(main.click, "clear", lambda: events.append("clear"))
+    prompt = MagicMock()
+    prompt.execute.side_effect = lambda: events.append("prompt") or "PROJ-1"
+    monkeypatch.setattr(main.inquirer, "text", MagicMock(return_value=prompt))
+    monkeypatch.setattr(main, "_fetch_story", AsyncMock(side_effect=lambda _: events.append("result")))
+    returned = MagicMock()
+    returned.execute.side_effect = lambda: events.append("return")
+    monkeypatch.setattr(main.inquirer, "confirm", MagicMock(return_value=returned))
+
+    main._run_interactive_menu()
+
+    assert events == ["menu", "clear", "prompt", "result", "return", "menu"]
 
 
 @pytest.mark.parametrize("choice,target", [

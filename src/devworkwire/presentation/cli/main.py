@@ -768,6 +768,7 @@ def _run_interactive_menu() -> None:
 
         if choice == _EXIT:
             break
+        click.clear()
         try:
             if choice == _FETCH_EPIC:
                 key = inquirer.text(message="Epic key (e.g. PROJ-123):").execute()
