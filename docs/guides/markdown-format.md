@@ -62,6 +62,10 @@ Other fields (`**Story ID**`, `**Epic Link**`, `**Issue Type**`, `**Status**`,
 `**Fix Version**`, `**Requirements**`, `**Deliverables**`, `**Dependencies**`,
 `**Success Metrics**`) are not modeled today and are ignored.
 
+The heading's `<id>` is the stable identity used by resumable imports. IDs must
+be unique within `stories.md`; `epic` is reserved. Renaming or removing an
+uploaded ID requires explicit reconciliation before further imports.
+
 ### How It's Parsed
 
 Both parsers read the whole file and extract fields with regular expressions;

@@ -11,6 +11,7 @@ from devworkwire.presentation.cli import main
 from devworkwire.presentation.cli.main import app, container
 from devworkwire.infrastructure.external.jira.jira_provider import JiraProvider
 from devworkwire.infrastructure.external.jira.settings import JiraSettings
+from devworkwire.features.import_.application.folder_state import ImportState
 
 runner = CliRunner()
 
@@ -429,6 +430,375 @@ def test_import_folder_returns_failure_after_partial_story_creation(mock_config,
     assert "Error creating story 'First'" in result.output
     assert "Successfully created story: PROJ-3 (Second)" in result.output
     assert route.call_count == 3
+
+
+@respx.mock
+def test_import_folder_rerun_skips_every_recorded_item(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    (tmp_path / "stories.md").write_text("### US-1: First\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}),
+        httpx.Response(201, json={"key": "PROJ-2"}),
+    ])
+
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 0
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 0
+    assert "already uploaded as PROJ-1" in result.stdout
+    assert "already uploaded as PROJ-2" in result.stdout
+    assert route.call_count == 2
+    state = json.loads((tmp_path / ".devworkwire-import.json").read_text())
+    assert state["epic"]["key"] == "PROJ-1"
+    assert state["stories"]["US-1"]["key"] == "PROJ-2"
+    assert runner.invoke(app, ["import-folder", str(tmp_path)]).exit_code == 0
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_import_folder_resumes_only_failed_story_after_definite_rejection(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    (tmp_path / "stories.md").write_text("### US-1: First\n### US-2: Second\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}),
+        httpx.Response(400, json={"errorMessages": ["Invalid story"]}),
+        httpx.Response(201, json={"key": "PROJ-3"}),
+        httpx.Response(201, json={"key": "PROJ-4"}),
+    ])
+
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 1
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 0
+    assert "Successfully created story: PROJ-4 (First)" in result.stdout
+    assert route.call_count == 4
+
+
+@respx.mock
+def test_changed_uploaded_story_is_skipped_with_warning(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    stories = tmp_path / "stories.md"
+    stories.write_text("### US-1: First\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}),
+        httpx.Response(201, json={"key": "PROJ-2"}),
+    ])
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 0
+    stories.write_text("### US-1: First changed\n")
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 0
+    assert "Markdown changed since recorded attempt" in result.output
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_uncertain_story_blocks_rerun_until_resolved(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    (tmp_path / "stories.md").write_text("### US-1: First\n### US-2: Second\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}),
+        httpx.Response(500),
+        httpx.Response(201, json={"key": "PROJ-3"}),
+        httpx.Response(201, json={"key": "PROJ-4"}),
+    ])
+
+    first = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+    assert first.exit_code == 1
+    assert route.call_count == 2
+    state = json.loads((tmp_path / ".devworkwire-import.json").read_text())
+    assert state["stories"]["US-1"]["status"] == "pending"
+    assert runner.invoke(app, ["preview-folder", str(tmp_path)]).exit_code == 1
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 1
+    assert route.call_count == 2
+
+    resolved = runner.invoke(app, ["resolve-import", str(tmp_path), "--item", "US-1", "--retry"])
+    assert resolved.exit_code == 0
+    resumed = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+    assert resumed.exit_code == 0
+    assert route.call_count == 4
+
+
+@respx.mock
+def test_resolve_import_records_verified_story_key(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    (tmp_path / "stories.md").write_text("### US-1: First\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}), httpx.Response(500),
+    ])
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 1
+    respx.get("https://jira.test/rest/api/3/issue/PROJ-2").mock(return_value=httpx.Response(
+        200, json={"key": "PROJ-2", "fields": {
+            "issuetype": {"name": "Story"}, "summary": "First", "parent": {"key": "PROJ-1"},
+        }},
+    ))
+
+    resolved = runner.invoke(app, [
+        "resolve-import", str(tmp_path), "--item", "US-1", "--key", "PROJ-2",
+    ])
+    assert resolved.exit_code == 0
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 0
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_resolve_import_rejects_wrong_story_parent(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    (tmp_path / "stories.md").write_text("### US-1: First\n")
+    respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}), httpx.Response(500),
+    ])
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 1
+    respx.get("https://jira.test/rest/api/3/issue/PROJ-2").mock(return_value=httpx.Response(
+        200, json={"key": "PROJ-2", "fields": {
+            "issuetype": {"name": "Story"}, "summary": "First", "parent": {"key": "PROJ-9"},
+        }},
+    ))
+
+    result = runner.invoke(app, [
+        "resolve-import", str(tmp_path), "--item", "US-1", "--key", "PROJ-2",
+    ])
+    assert result.exit_code == 1
+    assert "not linked to the recorded epic" in result.output
+    state = json.loads((tmp_path / ".devworkwire-import.json").read_text())
+    assert state["stories"]["US-1"]["status"] == "pending"
+
+
+@respx.mock
+def test_bad_state_blocks_creation(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    state_path = tmp_path / ".devworkwire-import.json"
+    state_path.write_text("not json")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 1
+    assert "Cannot read" in result.output
+    assert not route.called
+
+
+@respx.mock
+def test_duplicate_story_ids_block_creation(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    (tmp_path / "stories.md").write_text("### US-1: First\n### US-1: Second\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 1
+    assert "Duplicate story ID: US-1" in result.output
+    assert not route.called
+
+
+@respx.mock
+def test_state_write_failure_prevents_jira_creation(mock_config, monkeypatch, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+    def fail_save(self):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ImportState, "save", fail_save)
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 1
+    assert "disk full" in result.output
+    assert not route.called
+
+
+@respx.mock
+def test_failed_key_save_leaves_attempt_unresolved(mock_config, monkeypatch, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+    original_save = ImportState.save
+    save_count = 0
+
+    def fail_after_creation(self):
+        nonlocal save_count
+        save_count += 1
+        if save_count == 2:
+            raise OSError("disk full")
+        original_save(self)
+
+    monkeypatch.setattr(ImportState, "save", fail_after_creation)
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 1
+    assert route.call_count == 1
+    state = json.loads((tmp_path / ".devworkwire-import.json").read_text())
+    assert state["epic"]["status"] == "pending"
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 1
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_different_jira_destination_blocks_resume(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 0
+    container._jira_provider = JiraProvider(JiraSettings(
+        base_url="https://other.test", project_key="PROJ", username="u", api_token="fake",
+    ))
+    other_route = respx.post("https://other.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-2"})
+    )
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 1
+    assert "different Jira destination" in result.output
+    assert not other_route.called
+
+
+@respx.mock
+def test_renamed_story_id_requires_rebind_before_import(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    stories = tmp_path / "stories.md"
+    stories.write_text("### US-1: First\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}),
+        httpx.Response(201, json={"key": "PROJ-2"}),
+    ])
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 0
+    stories.write_text("### US-2: First\n")
+
+    preview = runner.invoke(app, ["preview-folder", str(tmp_path)])
+    blocked = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert preview.exit_code == 1
+    assert "US-1: PROJ-2" in preview.output
+    assert blocked.exit_code == 1
+    assert "Rebind or retire" in blocked.output
+    assert route.call_count == 2
+
+    rebound = runner.invoke(app, [
+        "rebind-import-story", str(tmp_path), "US-1", "US-2",
+    ])
+    assert rebound.exit_code == 0
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 0
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_removed_recorded_story_can_be_retired(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    stories = tmp_path / "stories.md"
+    stories.write_text("### US-1: First\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}),
+        httpx.Response(201, json={"key": "PROJ-2"}),
+        httpx.Response(201, json={"key": "PROJ-3"}),
+    ])
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 0
+    stories.write_text("### US-2: Second\n")
+
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 1
+    retired = runner.invoke(app, ["retire-import-story", str(tmp_path), "US-1"])
+    assert retired.exit_code == 0
+    resumed = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert resumed.exit_code == 0
+    assert "Successfully created story: PROJ-3" in resumed.output
+    assert route.call_count == 3
+
+
+@respx.mock
+def test_removed_pending_story_is_shown_and_can_be_cleared(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    stories = tmp_path / "stories.md"
+    stories.write_text("### US-1: First\n")
+    respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}), httpx.Response(500),
+    ])
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 1
+    stories.write_text("")
+
+    preview = runner.invoke(app, ["preview-folder", str(tmp_path)])
+    assert preview.exit_code == 1
+    assert "US-1: unresolved attempt" in preview.output
+    assert runner.invoke(app, [
+        "resolve-import", str(tmp_path), "--item", "US-1", "--retry",
+    ]).exit_code == 0
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 0
+
+
+@respx.mock
+def test_uncertain_epic_can_be_resolved_with_verified_key(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(500)
+    )
+
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 1
+    assert route.call_count == 1
+    respx.get("https://jira.test/rest/api/3/issue/PROJ-1").mock(return_value=httpx.Response(
+        200, json={"key": "PROJ-1", "fields": {
+            "issuetype": {"name": "Epic"}, "summary": "New Epic",
+        }},
+    ))
+
+    resolved = runner.invoke(app, [
+        "resolve-import", str(tmp_path), "--item", "epic", "--key", "PROJ-1",
+    ])
+
+    assert resolved.exit_code == 0
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 0
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_existing_lock_blocks_creation(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    (tmp_path / ".devworkwire-import.lock").write_text("another process\n")
+    route = respx.post("https://jira.test/rest/api/3/issue").mock(
+        return_value=httpx.Response(201, json={"key": "PROJ-1"})
+    )
+
+    result = runner.invoke(app, ["import-folder", str(tmp_path), "--yes"])
+
+    assert result.exit_code == 1
+    assert "Folder import is locked" in result.output
+    assert not route.called
+
+
+@respx.mock
+def test_resolution_rejects_key_already_recorded_for_another_story(mock_config, tmp_path):
+    (tmp_path / "epic.md").write_text("# Epic: New Epic\n")
+    (tmp_path / "stories.md").write_text("### US-1: First\n### US-2: Second\n")
+    respx.post("https://jira.test/rest/api/3/issue").mock(side_effect=[
+        httpx.Response(201, json={"key": "PROJ-1"}),
+        httpx.Response(201, json={"key": "PROJ-2"}),
+        httpx.Response(500),
+    ])
+    assert runner.invoke(app, ["import-folder", str(tmp_path), "--yes"]).exit_code == 1
+    respx.get("https://jira.test/rest/api/3/issue/PROJ-2").mock(return_value=httpx.Response(
+        200, json={"key": "PROJ-2", "fields": {
+            "issuetype": {"name": "Story"}, "summary": "First",
+            "parent": {"key": "PROJ-1"},
+        }},
+    ))
+
+    result = runner.invoke(app, [
+        "resolve-import", str(tmp_path), "--item", "US-2", "--key", "PROJ-2",
+    ])
+
+    assert result.exit_code == 1
+    assert "Jira issue keys must be unique" in result.output
+    state = json.loads((tmp_path / ".devworkwire-import.json").read_text())
+    assert state["stories"]["US-2"]["status"] == "pending"
 
 
 @respx.mock

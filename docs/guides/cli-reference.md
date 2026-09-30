@@ -75,6 +75,8 @@ dwire preview-folder path/to/work-items
 ```
 
 Reads the folder locally without contacting Jira. Shows the epic and each story with compact details, then reports any validation errors with file and line locations. The command exits nonzero if the folder is invalid.
+When a resume record exists, the preview also shows Jira keys, items still to create,
+changed Markdown, and unresolved attempts. An unresolved attempt makes preview fail.
 
 ### Import a folder
 
@@ -83,8 +85,41 @@ dwire import-folder path/to/work-items
 dwire import-folder path/to/work-items --yes  # scripts and other non-interactive runs
 ```
 
-Reads required `epic.md` and optional `stories.md` from the folder (see [Markdown Format](markdown-format.md)). It previews and validates all local items before creating anything. Invalid folders exit without Jira writes. Interactive runs ask for confirmation; non-interactive runs require `--yes`. A declined prompt creates nothing. After confirmation, the epic is created first, then each story is linked to it. Jira story failures are reported individually and the remaining stories are attempted. This command replaces the former `create-epic FOLDER` form.
+Reads required `epic.md` and optional `stories.md` from the folder (see [Markdown Format](markdown-format.md)). It previews and validates all local items before creating anything. Invalid folders exit without Jira writes. Interactive runs ask for confirmation; non-interactive runs require `--yes` when there is work to create. A declined prompt creates nothing. After confirmation, the epic is created first, then each story is linked to it. Definite Jira story rejections are reported individually and the remaining stories are attempted; uncertain outcomes stop the import. This command replaces the former `create-epic FOLDER` form.
+
+The importer saves `.devworkwire-import.json` beside the Markdown. It records the
+Jira destination and each created key, so rerunning the command skips uploaded
+items and creates only missing ones. Story IDs in `### <id>: <title>` headings must
+be unique and stable. If an uploaded item's Markdown changes, the CLI warns and
+keeps the existing Jira issue; it does not update it. Keep the resume file when
+moving the folder. A folder without one is treated as a new import, even if it
+was uploaded previously. The file contains Jira keys and the destination URL,
+but no credentials, and is ignored by Git.
+
+Issue creation uses one Jira request per item. If the outcome is uncertain
+(for example, a timeout or server error), the importer stops with an unresolved
+attempt. Check Jira before choosing either resolution:
+
+```bash
+dwire resolve-import path/to/work-items --item epic --key PROJ-123
+dwire resolve-import path/to/work-items --item US-1 --key PROJ-124
+dwire resolve-import path/to/work-items --item US-1 --retry
+```
+
+Use `--key` if Jira created the issue; the command verifies its type and, for a
+story, its parent epic. Use `--retry` only after confirming Jira created nothing.
+The local lock file prevents simultaneous imports of one folder. If a process
+crashes and leaves the lock, inspect Jira and the resume file before removing it.
+
+If a recorded story ID is missing from `stories.md`, preview shows its ID and
+key and imports stop. After renaming a heading ID, preserve its Jira key with
+`dwire rebind-import-story <folder> <old-id> <new-id>`. After intentionally
+removing a story from the folder, use
+`dwire retire-import-story <folder> <old-id>` to remove its local record.
+Retiring does not delete the Jira issue; reusing that ID later can create a
+new issue. An unresolved missing story must first be handled with
+`resolve-import`.
 
 ## Exit Status and Errors
 
-Commands return `0` on success and a nonzero status for missing items, invalid input, Jira errors, a non-interactive import without `--yes`, or any failed story in a folder import. Declining an interactive import exits successfully without creating items. A partial import can still occur after local validation if Jira rejects an item; check the printed keys before retrying to avoid duplicates. Errors are printed to stderr. Configuration comes from `devworkwire.yml` and the Jira environment settings described in [Configuration](../getting-started/configuration.md).
+Commands return `0` on success and a nonzero status for missing items, invalid input, Jira errors, a non-interactive import without `--yes`, or any failed story in a folder import. Declining an interactive import exits successfully without creating items. Definite Jira rejections leave those items ready for a later retry; uncertain outcomes require `resolve-import` first. Errors are printed to stderr. Configuration comes from `devworkwire.yml` and the Jira environment settings described in [Configuration](../getting-started/configuration.md).
