@@ -4,11 +4,8 @@ DevWorkWire follows Clean Architecture with Ports & Adapters: domain rules stay
 independent of external concerns (Jira, the CLI framework, logging), so the
 system is testable and the Jira adapter is swappable.
 
-> This project is on the `feature/devworkwire-baseline-reconstruction` branch,
-> which reset a larger prior design (per-feature repositories, a SQLite import
-> engine, an MCP server) back to a small, verified baseline. The structure
-> below reflects what actually exists in `src/` today; see [Planned
-> Work](#planned-work) for what the empty package scaffolding is reserved for.
+The structure below reflects the current code. AI agents with shell access use
+the same CLI through the portable skill in `skills/devworkwire/`.
 
 ## Current Structure
 
@@ -21,15 +18,15 @@ src/devworkwire/
 │   ├── service/                 # (empty — reserved, see Planned Work)
 │   └── composition.py           # Composition root: Container wires JiraProvider from config
 ├── features/
-│   ├── import_/application/     # Epic/stories markdown parsers
+│   ├── import_/application/     # Markdown parsers, local folder preview/validation, resumable import state and lock
 │   ├── progress/                # (empty — reserved)
 │   └── workitem/                # (empty — reserved)
 ├── infrastructure/
-│   ├── external/jira/           # JiraProvider (WorkItemProvider impl) + JiraSettings
+│   ├── external/jira/           # JiraProvider (WorkItemProvider impl), JiraSettings, Markdown-to-ADF converter
 │   └── local/store/             # (empty — reserved)
 ├── presentation/
-│   ├── cli/                     # Typer app: direct commands + interactive menu
-│   └── mcp/                     # (empty — reserved)
+│   ├── cli/                     # Typer app (main.py), menu screen (menu_view.py), banner, epic/story panels
+│   └── mcp/                     # (empty — no server is planned for the first AI integration)
 └── shared/                      # Structured logging, retry decorator
 ```
 
@@ -41,7 +38,7 @@ src/devworkwire/
 
 ```mermaid
 graph TD
-    CLI[CLI - Typer + InquirerPy] --> Container[Container - composition root]
+    CLI[CLI - Typer + prompt-toolkit + InquirerPy] --> Container[Container - composition root]
     Container --> Provider[JiraProvider]
     CLI --> Domain[Epic / UserStory]
     Provider --> Port[WorkItemProvider port]
@@ -71,11 +68,12 @@ sequenceDiagram
     CLI-->>User: Print title + description
 ```
 
-`create-epic <folder>` follows a similar shape: the CLI parses `<folder>/epic.md`,
-calls `provider.create_epic()`, then parses `<folder>/stories.md` (skipped if
-absent) and calls `provider.create_story(story, epic_key=...)` once per story,
-linking each to the epic via Jira's `parent` field. A story failure is reported
-and does not stop the remaining stories.
+`import-folder <folder>` parses and validates `epic.md` and optional `stories.md`
+before writing. It previews the local create/skip state, then confirms in an
+interactive terminal or requires `--yes` in a non-interactive run. It records
+created keys in `.devworkwire-import.json` for safe resumption. Definite Jira
+story rejections are reported while later stories are attempted; uncertain
+outcomes stop the import for manual resolution.
 
 ## Core Domain (`core/domain/`)
 
@@ -85,8 +83,8 @@ and does not stop the remaining stories.
 
 ## Jira Adapter (`infrastructure/external/jira/`)
 
-- **`settings.py`** — `JiraSettings`: frozen dataclass holding `base_url`, `username`, `api_token`, `project_key`, `api_version`, `timeout`, `max_retries`. Built by the composition root from `AppConfig` + `ProjectConfig`.
-- **`jira_provider.py`** — `JiraProvider(WorkItemProvider)`: implements `fetch_epic`/`create_epic`/`create_story` over `httpx`, with a `backoff`-based retry (`max_tries=settings.max_retries`) applied per-instance around the private `_fetch_epic`/`_create_epic`/`_create_story` methods. `create_story` links to its parent Epic via Jira's `parent` field. The HTTP client honors `settings.timeout`; the issue URL honors `settings.api_version`.
+- **`settings.py`** — `JiraSettings`: frozen dataclass holding `base_url`, `username`, `api_token`, `project_key`, `api_version`, `timeout`, `max_retries`, `story_points_field`. Built by the composition root from `AppConfig` + `ProjectConfig`.
+- **`jira_provider.py`** — `JiraProvider(WorkItemProvider)`: implements epic and story creation/retrieval plus paginated story and assigned-work listing over `httpx`, with retries for transient failures. `create_story` links to its parent Epic via Jira's `parent` field and sends story points using the configured field mapping. The HTTP client honors `settings.timeout`; issue URLs honor `settings.api_version`.
 
 ## Configuration (`config/`)
 
@@ -99,7 +97,7 @@ and does not stop the remaining stories.
 
 ## Presentation (`presentation/cli/main.py`)
 
-A Typer app with two direct commands (`fetch-epic`, `create-epic <folder>`) for scripting, plus an interactive, keyboard-navigable menu (built with `InquirerPy`) shown when `dwire` is invoked with no subcommand. Both paths call the same private `_fetch_epic`/`_create_epic` async helpers, so there is one place that owns error handling and Jira interaction for each action. `create-epic` expects a folder containing `epic.md` (required) and `stories.md` (optional) — see [Markdown Format Specification](../guides/markdown-format.md).
+A Typer app with direct commands for individual epic/story creation and retrieval, story and assigned-work listing, and folder import, plus an interactive, keyboard-navigable menu built with `prompt-toolkit` and InquirerPy input prompts. The menu appears when `dwire` is invoked with no subcommand. Both paths call the same async action helpers. Direct commands support `--format json` for tools and scripts. `import-folder` expects `epic.md` (required) and `stories.md` (optional) — see [Markdown Format Specification](../guides/markdown-format.md).
 
 ## Planned Work
 
@@ -110,5 +108,5 @@ These packages exist as empty scaffolding for work that hasn't landed yet on thi
 | `features/progress/` | Tracking import/creation progress across a batch of work items |
 | `features/workitem/` | A generic work-item abstraction above Epic/UserStory |
 | `infrastructure/local/store/` | Local state persistence (a prior iteration used SQLite; not yet rebuilt) |
-| `presentation/mcp/` | An MCP server exposing DevWorkWire operations as tools |
+| `presentation/mcp/` | Empty legacy scaffold; MCP is deferred pending a concrete client need |
 | `core/service/` | Cross-feature application services, once more than one feature needs to share orchestration |

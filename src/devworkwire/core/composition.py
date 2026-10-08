@@ -25,6 +25,7 @@ class Container:
                 api_version=app_config.get_config("jira.api_version", default=DEFAULT_API_VERSION),
                 timeout=app_config.get_config("jira.timeout", default=DEFAULT_TIMEOUT_SECONDS),
                 max_retries=app_config.get_config("jira.max_retries", default=DEFAULT_MAX_RETRIES),
+                story_points_field=project_config.field_mappings.get("story_points"),
             )
             self._jira_provider = JiraProvider(settings)
         return self._jira_provider

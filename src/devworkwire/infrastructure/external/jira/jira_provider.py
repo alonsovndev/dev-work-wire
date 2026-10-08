@@ -1,10 +1,11 @@
+import re
 from typing import Optional
 
 import backoff
 import httpx
 
-from devworkwire.core.domain import Epic, IssueId, Label, Priority, UserStory
-from devworkwire.core.ports.work_item_provider import WorkItemProvider
+from devworkwire.core.domain import Epic, IssueId, Label, Priority, StoryPoints, UserStory
+from devworkwire.core.ports.work_item_provider import WorkItemProvider, WorkItemSummary
 from devworkwire.infrastructure.external.jira.markdown_to_adf import markdown_to_adf
 from devworkwire.infrastructure.external.jira.settings import JiraSettings
 
@@ -71,6 +72,9 @@ _MOSCOW_TO_JIRA_PRIORITY = {
     "Could Have": "Medium",
     "Won't Have": "Low",
 }
+_ISSUE_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*-\d+\Z")
+_ACCOUNT_ID_RE = re.compile(r"[A-Za-z0-9:_-]+\Z")
+_PROJECT_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
 
 
 def _jira_priority_name(priority: Priority) -> str:
@@ -92,8 +96,9 @@ class JiraProvider(WorkItemProvider):
             giveup=lambda e: not _is_transient_error(e),
         )
         self._fetch_epic_with_retry = retry(self._fetch_epic)
-        self._create_epic_with_retry = retry(self._create_epic)
-        self._create_story_with_retry = retry(self._create_story)
+        self._fetch_story_with_retry = retry(self._fetch_story)
+        self._list_stories_with_retry = retry(self._list_stories)
+        self._list_assigned_with_retry = retry(self._list_assigned_work_items)
 
     @property
     def _issue_url(self) -> str:
@@ -103,45 +108,156 @@ class JiraProvider(WorkItemProvider):
         return await self._fetch_epic_with_retry(key)
 
     async def create_epic(self, epic: Epic) -> str:
-        return await self._create_epic_with_retry(epic)
+        # Jira creation is not idempotent; retrying an uncertain response can duplicate issues.
+        return await self._create_epic(epic)
 
     async def create_story(self, story: UserStory, epic_key: str) -> str:
-        return await self._create_story_with_retry(story, epic_key)
+        return await self._create_story(story, epic_key)
 
-    async def _fetch_epic(self, key: str) -> Optional[Epic]:
+    async def fetch_story(self, key: str) -> Optional[UserStory]:
+        return await self._fetch_story_with_retry(key)
+
+    async def list_stories(self, epic_key: str) -> list[UserStory]:
+        if not _ISSUE_KEY_RE.fullmatch(epic_key):
+            raise ValueError(f"Invalid Jira issue key: {epic_key}")
+        return await self._list_stories_with_retry(epic_key)
+
+    async def list_assigned_work_items(
+        self, account_id: str | None = None
+    ) -> list[WorkItemSummary]:
+        if account_id is not None and not _ACCOUNT_ID_RE.fullmatch(account_id):
+            raise ValueError("Invalid Jira account ID")
+        if not _PROJECT_KEY_RE.fullmatch(self.settings.project_key):
+            raise ValueError("Invalid Jira project key")
+        return await self._list_assigned_with_retry(account_id)
+
+    async def _fetch_issue(self, key: str) -> Optional[dict]:
         auth = (self.settings.username, self.settings.api_token)
         async with httpx.AsyncClient(timeout=self.settings.timeout) as client:
             response = await client.get(f"{self._issue_url}/{key}", auth=auth)
             if response.status_code == 404:
                 return None
             _raise_for_status_with_jira_detail(response)
-            data = response.json()
+            return response.json()
 
-            fields = data.get("fields", {})
-            title = fields.get("summary", "")
+    @staticmethod
+    def _require_issue_type(data: dict, expected: str) -> None:
+        issue_type = (data.get("fields", {}).get("issuetype") or {}).get("name")
+        if issue_type != expected:
+            article = "an" if expected == "Epic" else "a"
+            raise ValueError(f"Issue {data['key']} is not {article} {expected}")
 
-            # Jira v3 returns description as an Atlassian Document Format (ADF) dict.
-            desc_field = fields.get("description", {})
-            description = _adf_to_text(desc_field) if isinstance(desc_field, dict) else str(desc_field)
+    def _story_from_issue(self, data: dict, include_points: bool = True) -> UserStory:
+        self._require_issue_type(data, "Story")
+        fields = data.get("fields", {})
+        description_field = fields.get("description")
+        description = (
+            _adf_to_text(description_field)
+            if isinstance(description_field, dict)
+            else str(description_field or "")
+        )
+        priority_name = (fields.get("priority") or {}).get("name")
+        points_value = (
+            fields.get(self.settings.story_points_field)
+            if include_points and self.settings.story_points_field else None
+        )
+        if points_value is not None:
+            if isinstance(points_value, bool) or not isinstance(points_value, (int, float)) or int(points_value) != points_value:
+                raise ValueError(f"Issue {data['key']} has non-integer story points")
+            story_points = StoryPoints(value=int(points_value))
+        else:
+            story_points = None
+        return UserStory(
+            title=fields.get("summary", ""),
+            description=description,
+            issue_id=IssueId(key=data["key"]),
+            priority=Priority.from_jira_name(priority_name) if priority_name else None,
+            story_points=story_points,
+            labels=[Label(name=label) for label in fields.get("labels") or []],
+            epic_key=(fields.get("parent") or {}).get("key"),
+            status=(fields.get("status") or {}).get("name"),
+        )
 
-            priority_name = fields.get("priority", {}).get("name")
-            priority = Priority.from_jira_name(priority_name) if priority_name else None
+    async def _fetch_epic(self, key: str) -> Optional[Epic]:
+        data = await self._fetch_issue(key)
+        if data is None:
+            return None
+        self._require_issue_type(data, "Epic")
+        fields = data.get("fields", {})
+        description_field = fields.get("description")
+        description = (
+            _adf_to_text(description_field)
+            if isinstance(description_field, dict)
+            else str(description_field or "")
+        )
+        priority_name = (fields.get("priority") or {}).get("name")
+        epic = Epic.create(
+            title=fields.get("summary", ""),
+            description=description,
+            priority=Priority.from_jira_name(priority_name) if priority_name else None,
+            labels=[Label(name=label) for label in fields.get("labels") or []],
+        )
+        epic.issue_id = IssueId(key=data["key"])
+        return epic
 
-            labels = [Label(name=lbl) for lbl in fields.get("labels", [])]
+    async def _fetch_story(self, key: str) -> Optional[UserStory]:
+        data = await self._fetch_issue(key)
+        return self._story_from_issue(data) if data is not None else None
 
-            epic = Epic.create(
-                title=title,
-                description=description,
-                priority=priority,
-                labels=labels,
+    async def _list_stories(self, epic_key: str) -> list[UserStory]:
+        issues = await self._search_issues(
+            f'parent = "{epic_key}" AND issuetype = Story ORDER BY key ASC',
+            ["summary", "issuetype", "status"],
+        )
+        return [self._story_from_issue(issue, include_points=False) for issue in issues]
+
+    async def _list_assigned_work_items(
+        self, account_id: str | None
+    ) -> list[WorkItemSummary]:
+        assignee = f'"{account_id}"' if account_id is not None else "currentUser()"
+        jql = (
+            f'project = "{self.settings.project_key}" AND assignee = {assignee} '
+            "AND statusCategory != Done ORDER BY updated DESC, key ASC"
+        )
+        issues = await self._search_issues(jql, ["summary", "issuetype", "status"])
+        return [
+            WorkItemSummary(
+                key=issue["key"],
+                issue_type=(issue.get("fields", {}).get("issuetype") or {}).get("name") or "Unknown",
+                title=issue.get("fields", {}).get("summary") or "",
+                status=(issue.get("fields", {}).get("status") or {}).get("name") or "Unknown",
             )
-            epic.issue_id = IssueId(key=data["key"])
-            return epic
+            for issue in issues
+        ]
+
+    async def _search_issues(self, jql: str, fields: list[str]) -> list[dict]:
+        issues: list[dict] = []
+        next_page_token = None
+        auth = (self.settings.username, self.settings.api_token)
+        search_url = f"{self.settings.base_url}/rest/api/3/search/jql"
+        async with httpx.AsyncClient(timeout=self.settings.timeout) as client:
+            while True:
+                payload: dict[str, object] = {
+                    "jql": jql,
+                    "fields": fields,
+                    "maxResults": 100,
+                }
+                if next_page_token:
+                    payload["nextPageToken"] = next_page_token
+                response = await client.post(search_url, json=payload, auth=auth)
+                _raise_for_status_with_jira_detail(response)
+                data = response.json()
+                issues.extend(data.get("issues", []))
+                if data.get("isLast"):
+                    return issues
+                next_page_token = data.get("nextPageToken")
+                if not next_page_token:
+                    raise ValueError("Jira search response omitted the next page token")
 
     async def _create_epic(self, epic: Epic) -> str:
         auth = (self.settings.username, self.settings.api_token)
 
-        payload = {
+        payload: dict[str, dict[str, object]] = {
             "fields": {
                 "project": {"key": self.settings.project_key},
                 "summary": epic.title,
@@ -165,7 +281,7 @@ class JiraProvider(WorkItemProvider):
     async def _create_story(self, story: UserStory, epic_key: str) -> str:
         auth = (self.settings.username, self.settings.api_token)
 
-        payload = {
+        payload: dict[str, dict[str, object]] = {
             "fields": {
                 "project": {"key": self.settings.project_key},
                 "summary": story.title,
@@ -180,6 +296,11 @@ class JiraProvider(WorkItemProvider):
 
         if story.labels:
             payload["fields"]["labels"] = [lbl.name for lbl in story.labels]
+
+        if story.story_points is not None:
+            if not self.settings.story_points_field:
+                raise ValueError("Story points field is not configured")
+            payload["fields"][self.settings.story_points_field] = story.story_points.value
 
         async with httpx.AsyncClient(timeout=self.settings.timeout) as client:
             response = await client.post(self._issue_url, json=payload, auth=auth)

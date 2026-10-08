@@ -77,6 +77,14 @@ def _extra_fields(record: logging.LogRecord) -> dict:
 _configured = False
 
 
+class _CurrentStderr:
+    def write(self, message: str) -> int:
+        return sys.stderr.write(message)
+
+    def flush(self) -> None:
+        sys.stderr.flush()
+
+
 def set_request_id(request_id: str | None) -> None:
     """Tag subsequent log lines with the current request's ID."""
     _request_id_ctx.set(request_id or "-")
@@ -167,7 +175,7 @@ def _configure_root() -> None:
     if _configured:
         return
 
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(_CurrentStderr())
     handler.setFormatter(_JsonFormatter())
     # Filter must live on the handler: logger-level filters are not applied to
     # records propagated up from child loggers.

@@ -11,7 +11,6 @@ Same as [installation](../getting-started/installation.md), plus:
 ### Code Style
 
 - **PEP 8** — standard Python style
-- **camelCase** for variables and functions
 - **PascalCase** for classes
 - **Full type hints** on all function signatures
 - **Google-style docstrings** with Args, Returns, and Raises sections
@@ -43,19 +42,27 @@ Use `Optional[X]` instead of `X | None` for consistency with the existing codeba
 Google-style, always including parameter and return descriptions:
 
 ```python
-def create(cls, key: str, summary: str) -> "Epic":
+def create(
+    cls,
+    title: str,
+    description: str,
+    priority: Optional[Priority] = None,
+    labels: Optional[List[Label]] = None,
+) -> "Epic":
     """
     Factory method to create an Epic instance.
 
     Args:
-        key: Jira issue key (e.g., "PROJ-123")
-        summary: Epic title/summary
+        title: Epic title
+        description: Epic description
+        priority: Optional priority
+        labels: Optional labels
 
     Returns:
         New Epic instance
 
     Raises:
-        BusinessRuleViolationException: If required fields are missing
+        BusinessRuleViolation: If the title is empty or blank
     """
 ```
 

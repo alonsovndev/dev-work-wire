@@ -30,22 +30,25 @@ dmypy.json
 *.swp
 *.swo
 *~
-.DS_Store
-
-# Local project config
-settings.yml
-
-# Logs
-*.log
 
 # OS-specific files
 .DS_Store
 .AppleDouble
 .LSOverride
-*.swp
-*.swo
-*~
+
+# Local project config
+settings.yml
+
+# Environment and configuration
+.env
+.env.local
+.env.*.local
 
 # Local development
 .python-version
-settings.yml
+.devworkwire-import.json
+.devworkwire-import.lock
+.devworkwire-import-*.tmp
+
+# Logs
+*.log

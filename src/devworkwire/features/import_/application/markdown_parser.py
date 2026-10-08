@@ -2,7 +2,7 @@ import os
 import re
 from devworkwire.core.domain import Epic, Label, Priority, StoryPoints, UserStory
 
-_STORY_HEADING_RE = re.compile(r"^###\s+.+?:\s*(.+)$", re.MULTILINE)
+_STORY_HEADING_RE = re.compile(r"^###[ \t]+[^:\s][^:\n]*:[ \t]*(\S.*)$", re.MULTILINE)
 
 
 def parse_epic_markdown(file_path: str) -> Epic:
@@ -16,14 +16,16 @@ def parse_epic_markdown(file_path: str) -> Epic:
     **Epic Description:**
     [description, up to the next `##` heading or end of file]
     """
-    content = _read_required_file(file_path)
+    return _parse_epic_content(_read_required_file(file_path))
 
-    title_match = re.search(r"^# Epic:\s*(.+)$", content, re.MULTILINE)
+
+def _parse_epic_content(content: str) -> Epic:
+    title_match = re.search(r"^# Epic:[ \t]*(\S.*)$", content, re.MULTILINE)
     desc_match = re.search(
         r"\*\*Epic Description:\*\*\s*\n(.*?)(?=\n##\s|\Z)", content, re.DOTALL
     )
-    priority_match = re.search(r"\*\*Priority\*\*:\s*(.+)$", content, re.MULTILINE)
-    labels_match = re.search(r"\*\*Labels\*\*:\s*(.+)$", content, re.MULTILINE)
+    priority_match = re.search(r"\*\*Priority\*\*:[ \t]*(\S.*)$", content, re.MULTILINE)
+    labels_match = re.search(r"\*\*Labels\*\*:[ \t]*(\S.*)$", content, re.MULTILINE)
 
     title = title_match.group(1).strip() if title_match else "Untitled Epic"
     description = desc_match.group(1).strip() if desc_match else ""
@@ -67,9 +69,9 @@ def parse_stories_markdown(file_path: str) -> list[UserStory]:
 
 
 def _parse_story_block(title: str, block: str) -> UserStory:
-    priority_match = re.search(r"\*\*Priority\*\*:\s*(.+)$", block, re.MULTILINE)
-    points_match = re.search(r"\*\*Effort Estimate\*\*:\s*(\d+)", block)
-    labels_match = re.search(r"\*\*Labels\*\*:\s*(.+)$", block, re.MULTILINE)
+    priority_match = re.search(r"\*\*Priority\*\*:[ \t]*(\S.*)$", block, re.MULTILINE)
+    points_match = re.search(r"\*\*Effort Estimate\*\*:[ \t]*(\d+)$", block, re.MULTILINE)
+    labels_match = re.search(r"\*\*Labels\*\*:[ \t]*(\S.*)$", block, re.MULTILINE)
 
     priority = Priority.from_jira_name(priority_match.group(1).strip()) if priority_match else None
     story_points = StoryPoints(value=int(points_match.group(1))) if points_match else None

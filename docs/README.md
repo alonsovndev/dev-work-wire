@@ -9,6 +9,7 @@ Welcome to the DevWorkWire documentation. Pick your path:
 | [Installation](getting-started/installation.md) | Prerequisites, clone, install, verify |
 | [Configuration](getting-started/configuration.md) | `.env` variables, YAML config, Jira API token |
 | [CLI Reference](guides/cli-reference.md) | All commands, interactive menu, scripting examples |
+| [AI Agent Skill](guides/ai-agent-skill.md) | Use the CLI from a terminal-capable AI tool |
 | [Markdown Format](guides/markdown-format.md) | Epic and user story template specification |
 
 ## For Developers
@@ -26,6 +27,7 @@ Welcome to the DevWorkWire documentation. Pick your path:
 devworkwire/
 ├── docs/                  # This documentation
 ├── scripts/               # Helper scripts (run-cli)
+├── skills/                # Portable AI agent skill — see guides/ai-agent-skill.md
 ├── src/devworkwire/       # Application source — see architecture/overview.md
 └── tests/                 # Unit and integration tests, mirrored per source module
 ```
@@ -34,7 +36,7 @@ devworkwire/
 
 | Component | Technology |
 |-----------|------------|
-| CLI | Typer + InquirerPy (interactive menu) |
+| CLI | Typer + prompt-toolkit menu + InquirerPy prompts |
 | API Client | httpx (async) |
 | Config | python-dotenv + pyaml-env |
 | Testing | pytest + pytest-asyncio + respx |

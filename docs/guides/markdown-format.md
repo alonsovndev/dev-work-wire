@@ -1,9 +1,8 @@
 # Markdown Format Specification
 
-`dwire create-epic <folder>` reads `epic.md` (required) and `stories.md` (optional)
-from a folder via `parse_epic_markdown()` and `parse_stories_markdown()`
-(`features/import_/application/markdown_parser.py`). These are the only Markdown
-formats currently supported.
+`dwire preview-folder <folder>` and `dwire import-folder <folder>` read `epic.md`
+(required) and `stories.md` (optional). Both commands validate the files locally
+before any Jira item is created. These are the only Markdown formats supported.
 
 ## `epic.md`
 
@@ -21,8 +20,8 @@ formats currently supported.
 
 | Field | Required | Description |
 |---|---|---|
-| `# Epic: [Title]` | No — defaults to `Untitled Epic` | Epic title, on its own heading line |
-| `**Priority**:` | No | Passed through as-is to `Priority.from_jira_name()` |
+| `# Epic: [Title]` | Yes for folder commands | Epic title, on its own heading line |
+| `**Priority**:` | No | Passed to `Priority.from_jira_name()`; see [Priority mapping](#priority-mapping) |
 | `**Labels**:` | No | Comma-separated; each becomes a `Label` (no spaces allowed within a label name) |
 | `**Epic Description:**` | No — defaults to empty | Free text; captured up to the next `##` heading or end of file |
 
@@ -32,7 +31,7 @@ modeled by the `Epic` entity today and are ignored.
 
 ## `stories.md`
 
-Stories are optional — a missing `stories.md` simply yields no stories. Each story
+Stories are optional — a missing or empty `stories.md` yields no stories. Each story
 is a block starting with a `### <Story ID>: <Title>` heading:
 
 ```markdown
@@ -54,8 +53,8 @@ is a block starting with a `### <Story ID>: <Title>` heading:
 | Field | Required | Description |
 |---|---|---|
 | `### <id>: [Title]` | Yes (per block) | Story title |
-| `**Priority**:` | No | `Priority.from_jira_name()` |
-| `**Effort Estimate**:` | No | Integer, becomes `StoryPoints` (parsed for the domain entity only — not sent to Jira; no custom field is configured for it) |
+| `**Priority**:` | No | `Priority.from_jira_name()`; see [Priority mapping](#priority-mapping) |
+| `**Effort Estimate**:` | No | Nonnegative integer story points, sent to Jira using `field_mappings.story_points` |
 | `**Labels**:` | No | Same rules as the epic's `**Labels**:` |
 | `**As a**` / `**I want to**` / `**So that**` + `**Acceptance Criteria**:` | No | Composed into the story's `description` |
 
@@ -63,11 +62,39 @@ Other fields (`**Story ID**`, `**Epic Link**`, `**Issue Type**`, `**Status**`,
 `**Fix Version**`, `**Requirements**`, `**Deliverables**`, `**Dependencies**`,
 `**Success Metrics**`) are not modeled today and are ignored.
 
+The heading's `<id>` is the stable identity used by resumable imports. IDs must
+be unique within `stories.md`; `epic` is reserved. Renaming or removing an
+uploaded ID requires explicit reconciliation before further imports.
+
+### Priority mapping
+
+When creating an issue, the Jira adapter maps MoSCoW wording to Jira's default
+priority names:
+
+| Markdown value | Jira priority |
+|---|---|
+| `Must Have` | `Highest` |
+| `Should Have` | `High` |
+| `Could Have` | `Medium` |
+| `Won't Have` | `Low` |
+
+Any other value (for example `High`) is sent unchanged, so it must match a
+priority configured in your Jira project.
+
+### Description formatting
+
+Epic and story descriptions are converted to Jira's rich text format. The
+supported Markdown subset is headings, `**bold**`, `[links](url)`, bullet lists,
+and `- [ ]` checklists. Checklist items appear as bullets prefixed with ☐ or ☑,
+not as Jira task lists.
+
 ### How It's Parsed
 
-Both parsers read the whole file and extract fields with regular expressions —
-field order doesn't matter. Each created Story is linked to its Epic via Jira's
-`parent` field, using the issue key returned when the Epic was created. Missing
-fields fall back to their defaults; there's no validation beyond what
-`Epic.create()`/`UserStory.create()` already enforce (a non-empty title, valid
-label names).
+Both parsers read the whole file and extract fields with regular expressions;
+field order does not matter. Folder validation requires the epic heading and a
+title in every story heading. It reports malformed headings, invalid labels,
+empty priorities, and estimates that are not nonnegative integers, with file and
+line locations. All detectable errors are shown together. Optional fields may
+be omitted. Validation is local: Jira can still reject an item because of its
+project settings or permissions. Each created Story is linked to its Epic via
+Jira's `parent` field, using the key returned when the Epic was created.

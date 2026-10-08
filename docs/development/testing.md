@@ -15,10 +15,16 @@ tests/
 │   ├── domain/
 │   │   ├── test_entities.py         # Epic / UserStory construction and validation
 │   │   └── test_value_objects.py    # IssueId / Priority / StoryPoints / Label
+│   ├── import_/
+│   │   └── test_markdown_parser.py  # epic.md / stories.md parsing
 │   ├── jira/
-│   │   └── test_jira_provider.py    # JiraProvider against respx-mocked HTTP (incl. retry/timeout/api_version wiring)
+│   │   ├── test_jira_provider.py    # JiraProvider against respx-mocked HTTP (incl. retry/timeout/api_version wiring)
+│   │   └── test_markdown_to_adf.py  # Markdown description -> Atlassian Document Format conversion
 │   ├── presentation/
-│   │   └── test_interactive_menu.py # Interactive menu wiring (selection -> prompt -> action), mocked
+│   │   ├── test_banner.py           # Startup banner rendering
+│   │   ├── test_epic_panel.py       # Bordered epic/story detail panels
+│   │   ├── test_interactive_menu.py # Interactive menu wiring (selection -> prompt -> action), mocked
+│   │   └── test_menu_view.py        # Menu screen renderer and keyboard shortcuts
 │   └── shared/
 │       └── test_log_config.py       # Structured logging formatters and context
 └── integration/
@@ -69,7 +75,10 @@ Use `respx` to mock HTTP responses against the real `JiraProvider`:
 @respx.mock
 async def test_fetch_epic(provider):
     respx.get("https://jira.example.com/rest/api/3/issue/PROJ-1").mock(
-        return_value=httpx.Response(200, json={"key": "PROJ-1", "fields": {"summary": "S"}})
+        return_value=httpx.Response(
+            200,
+            json={"key": "PROJ-1", "fields": {"summary": "S", "issuetype": {"name": "Epic"}}},
+        )
     )
     epic = await provider.fetch_epic("PROJ-1")
     assert epic.title == "S"
@@ -89,11 +98,11 @@ def mock_config():
     container._jira_provider = None
 ```
 
-Cover both the success path and the error path (the CLI commands catch `Exception` and print `Error ...:` rather than raising, so assert on `result.output`, not just `exit_code`).
+Cover both success and error paths. Commands print errors to stderr and return a nonzero exit status, including when a folder import creates only some stories.
 
 ### Interactive Menu Tests
 
-The interactive menu (`presentation/cli/main.py::_run_interactive_menu`) is tested by monkeypatching `InquirerPy.inquirer.select`/`.text`/`.filepath` to return canned choices, and the `_fetch_epic`/`_create_epic` helpers with `unittest.mock.AsyncMock` — this verifies menu wiring (which prompt follows which choice, which helper gets called with what argument) without needing a real terminal. End-to-end keyboard behavior is verified manually against a pty (`script -q /dev/null dwire` or similar), not in the automated suite.
+The interactive menu (`presentation/cli/main.py::_run_interactive_menu`) is tested by monkeypatching its menu selection and `InquirerPy.inquirer.text` prompts, and the async action helpers with `unittest.mock.AsyncMock`. The screen renderer and keyboard shortcuts have focused tests in `test_menu_view.py`. End-to-end keyboard behavior is also verified manually against a pty (`script -q /dev/null dwire` or similar).
 
 ## Testing Conventions
 

@@ -1,67 +1,156 @@
 # CLI Reference
 
-DevWorkWire provides a keyboard-navigable interactive menu, plus direct commands for scripting.
+DevWorkWire provides direct commands for scripts and an interactive menu for one-off work.
 
 ## Launching the CLI
 
 ```bash
-# Installed from PyPI (recommended via pipx)
+# Installed package
+
 dwire
 
-# From a source checkout: convenience script
+# Source checkout
 ./scripts/run-cli
 
-# Or directly as a module
+# Python module
 python -m devworkwire.presentation.cli
 ```
 
-Running `dwire` with no arguments prints the startup banner (logo, tagline, and a
-"Developed by alonsovndev · v{version}" legend) and starts the interactive menu.
-Running `dwire <command> ...` invokes that command directly and exits — no banner or
-menu shown.
+Running `dwire` without a command opens the menu. Direct commands run without the menu or banner.
+
+## JSON output for tools and scripts
+
+Place `--format json` before any direct command to receive one JSON object on stdout.
+The interactive menu remains text-only. Diagnostic logs go to stderr. A failed command
+still exits nonzero, so scripts should check both the exit status and the JSON result.
+
+```bash
+dwire --format json fetch-story PROJ-124
+dwire --format json preview-folder path/to/work-items
+dwire --format json import-folder path/to/work-items --yes
+```
+
+Every result has `command`, `status`, `data`, and `error`. `error` is `null` on
+success; otherwise it contains a stable `code` and a human-readable `message`.
+Argument errors detected before a command runs use the `INVALID_ARGUMENT`
+code and still exit nonzero.
+`status` is `completed` for a successful read or write, `preview` for a valid
+read-only preview, `no_change` for an already imported folder, `error` for a
+failed command with no new items, or `partial` when an import created some items
+but did not complete. The `data` object contains work-item fields, a preview,
+or created keys as appropriate. Preview actions are `create`, `skip`, and
+`unresolved`; `changed: true` on a skipped item means its Markdown differs from
+the recorded upload, and the importer will **not** update that Jira item.
+
+JSON mode never prompts. `import-folder` requires `--yes` when it has work to
+create. Use it only for a user-authorized write; the CLI cannot inspect an AI
+agent's task approval. A `partial` result requires inspecting the created keys
+and unresolved state before retrying.
 
 ## Interactive Menu
 
-Navigate with the arrow keys, press Enter to select.
+Use the arrow keys and Enter to choose an action, or press its number (`1`–`8`) to select it directly. Press `?` for keyboard help. Esc leaves the main menu or returns from help; `0` selects **Exit**. The layout adapts to smaller terminals.
 
-| Option | Description |
-|---|---|
-| **Retrieve an epic from Jira by key** | Prompts for a Jira issue key, fetches the epic, and prints its title and description |
-| **Create a new epic in Jira from a markdown file** | Prompts for a path to an epic Markdown file (see [Markdown Format](markdown-format.md)), parses it, and creates the issue |
-| **Exit** | Returns to the shell |
-
-After each action the menu is shown again; select **Exit** to leave.
+The menu can retrieve an epic or story, list an epic's stories or a user's assigned work, create one epic or story, preview a folder, or import it after confirmation. The assigned-work prompt accepts the provider's account ID; leave it blank for the authenticated user. Creation prompts for title, description, priority, and labels; story creation also prompts for an existing epic key and whole-number points. Labels are comma-separated in the menu. The menu returns after each action.
 
 ## Direct Commands
 
-### `dwire fetch-epic KEY`
+### Create an epic
 
-Fetches an epic from Jira by key and prints its title and description.
+```bash
+dwire create-epic --title "Authentication" --description "Login and recovery" \
+  --priority High --label auth --label backend
+```
+
+`--title` is required. Description, priority, and repeatable `--label` are optional. This command creates exactly one epic.
+
+### Create a story
+
+```bash
+dwire create-story PROJ-123 --title "Log in" --description "A user can log in" \
+  --priority High --label auth --points 5
+```
+
+The positional key must identify an existing epic. `--title` is required; other options are optional. `--points` accepts a nonnegative whole number and uses the configured `field_mappings.story_points` Jira field.
+
+### Fetch an epic or story
 
 ```bash
 dwire fetch-epic PROJ-123
+dwire fetch-story PROJ-124
 ```
 
-### `dwire create-epic PATH`
+The detailed view shows key, title, description, priority, and labels when present. Story output also shows parent epic, status, and points when available. Fetch commands reject an issue of the wrong type.
 
-Parses a Markdown file (see [Markdown Format](markdown-format.md)) and creates the epic in Jira.
+### List an epic's stories
 
 ```bash
-dwire create-epic path/to/epic.md
+dwire list-stories PROJ-123
 ```
 
-## Error Handling
+Lists every story under the epic as key, title, and status. An empty epic prints a message and succeeds.
 
-Both commands catch errors and print `Error fetching epic: ...` / `Error creating epic: ...` to stderr rather than raising a traceback; the process exits `0` either way (this is a scripting convenience, not a signal to rely on for exit-code checks).
+### List work assigned to a user
 
-| Error | Cause | Solution |
-|---|---|---|
-| `ModuleNotFoundError` | Virtual environment not activated | Run `source .venv/bin/activate` |
-| Project config error | `devworkwire.yml` missing or invalid | Copy `devworkwire.example.yml` to `devworkwire.yml` and adjust `provider`/`project_key` |
-| `Error fetching epic: ...` (404-shaped message) | Epic not found | Verify the Jira key exists |
-| `Error fetching/creating epic: ...` (HTTP error) | Jira unreachable or credentials rejected | Check `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` in `.env` |
-| `Markdown file not found: ...` | Bad path passed to `create-epic` | Check the file path |
+```bash
+dwire list-assigned
+dwire list-assigned --assignee 557058:abcd-1234
+```
 
-## Roadmap
+Without `--assignee`, the command uses the authenticated Jira user. With it, supply a Jira account ID, not an email address or display name. The command lists open work in the configured project across all issue types, ordered by most recently updated. Each row shows key, issue type, title, and status. “Open” means the Jira status category is not Done. An empty result prints a message and succeeds.
 
-An import/preview/commit workflow with local state tracking (dedupe by content hash) existed in a prior iteration of this project and was reset during the current baseline reconstruction; it isn't available yet. `features/import_`, `features/progress`, and `features/workitem` are reserved packages for that and related work — see [Architecture Overview](../architecture/overview.md#planned-work).
+### Preview and validate a folder
+
+```bash
+dwire preview-folder path/to/work-items
+```
+
+Reads the folder locally without contacting Jira. Shows the epic and each story with compact details, then reports any validation errors with file and line locations. The command exits nonzero if the folder is invalid.
+When a resume record exists, the preview also shows Jira keys, items still to create,
+changed Markdown, and unresolved attempts. An unresolved attempt makes preview fail.
+
+### Import a folder
+
+```bash
+dwire import-folder path/to/work-items
+dwire import-folder path/to/work-items --yes  # scripts and other non-interactive runs
+```
+
+Reads required `epic.md` and optional `stories.md` from the folder (see [Markdown Format](markdown-format.md)). It previews and validates all local items before creating anything. Invalid folders exit without Jira writes. Interactive runs ask for confirmation; non-interactive runs require `--yes` when there is work to create. A declined prompt creates nothing. After confirmation, the epic is created first, then each story is linked to it. Definite Jira story rejections are reported individually and the remaining stories are attempted; uncertain outcomes stop the import. This command replaces the former `create-epic FOLDER` form.
+
+The importer saves `.devworkwire-import.json` beside the Markdown. It records the
+Jira destination and each created key, so rerunning the command skips uploaded
+items and creates only missing ones. Story IDs in `### <id>: <title>` headings must
+be unique and stable. If an uploaded item's Markdown changes, the CLI warns and
+keeps the existing Jira issue; it does not update it. Keep the resume file when
+moving the folder. A folder without one is treated as a new import, even if it
+was uploaded previously. The file contains Jira keys and the destination URL,
+but no credentials, and is ignored by Git.
+
+Issue creation uses one Jira request per item. If the outcome is uncertain
+(for example, a timeout or server error), the importer stops with an unresolved
+attempt. Check Jira before choosing either resolution:
+
+```bash
+dwire resolve-import path/to/work-items --item epic --key PROJ-123
+dwire resolve-import path/to/work-items --item US-1 --key PROJ-124
+dwire resolve-import path/to/work-items --item US-1 --retry
+```
+
+Use `--key` if Jira created the issue; the command verifies its type and, for a
+story, its parent epic. Use `--retry` only after confirming Jira created nothing.
+The local lock file prevents simultaneous imports of one folder. If a process
+crashes and leaves the lock, inspect Jira and the resume file before removing it.
+
+If a recorded story ID is missing from `stories.md`, preview shows its ID and
+key and imports stop. After renaming a heading ID, preserve its Jira key with
+`dwire rebind-import-story <folder> <old-id> <new-id>`. After intentionally
+removing a story from the folder, use
+`dwire retire-import-story <folder> <old-id>` to remove its local record.
+Retiring does not delete the Jira issue; reusing that ID later can create a
+new issue. An unresolved missing story must first be handled with
+`resolve-import`.
+
+## Exit Status and Errors
+
+Commands return `0` on success and a nonzero status for missing items, invalid input, Jira errors, a non-interactive import without `--yes`, or any failed story in a folder import. Declining an interactive import exits successfully without creating items. Definite Jira rejections leave those items ready for a later retry; uncertain outcomes require `resolve-import` first. Errors are printed to stderr. Configuration comes from `devworkwire.yml` and the Jira environment settings described in [Configuration](../getting-started/configuration.md).
