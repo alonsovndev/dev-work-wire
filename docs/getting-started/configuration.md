@@ -1,20 +1,46 @@
 # Configuration
 
-DevWorkWire uses a three-tier configuration system:
+DevWorkWire resolves its Jira connection (base URL, email, API token, project key) from three sources, highest priority first:
 
-1. **`.env` file** — environment variables for secrets (never committed)
-2. **`config_{env}.yml`** — structured settings (logging, Jira connection) loaded based on `APP_ENV`
-3. **`devworkwire.yml`** — per-project provider config (provider selection, project key, field mappings)
+- **Connection** (base URL, email, API token): environment variables (`JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, including those from a `.env` file) override the stored user config written by `dwire config setup`.
+- **Project key**: `--project KEY` for the run, else the stored default project, else `project_key` in `devworkwire.yml`. There is no `JIRA_PROJECT_KEY` variable.
+
+Logging and request settings (timeout, retries) come from `config_{env}.yml`, selected by `APP_ENV`.
+
+## Stored Jira settings (`dwire config`)
+
+The easiest way to configure Jira is to let the CLI store it for you; no file editing needed:
+
+```bash
+dwire config setup               # base URL, email, API token (hidden) and your first project
+dwire config add-project OTHER   # add more projects; --default makes it the default
+dwire config set-default OTHER   # choose the project used when --project is not given
+dwire config remove-project OTHER
+dwire config show                # effective values, where each comes from, token masked
+dwire config clear               # delete everything stored (asks first; --yes to skip)
+```
+
+One Jira connection serves all your projects. The first project you add becomes the default; removing the default promotes the oldest remaining one. Pick another project for a single run with the root option:
+
+```bash
+dwire --project OTHER list-assigned
+```
+
+`--project` must name a configured project (typos fail with a hint to `add-project`); it is accepted as-is only when no projects are stored.
+
+Settings live in a SQLite database at `~/.config/devworkwire/config.db` (`$XDG_CONFIG_HOME/devworkwire/` if set, or `$DEVWORKWIRE_CONFIG_DIR`). The directory is created `0700` and the file `0600`; permissions of an existing directory are tightened to `0700` too, so do not point `DEVWORKWIRE_CONFIG_DIR` at a shared folder such as `$HOME`. **The API token is stored in plaintext**, at the same trust level as a `.env` file, and is never printed. `setup` always prompts for the token, so it never lands in your shell history; pressing Enter at the token prompt keeps the stored one.
+
+Because environment variables win for the connection, an existing `.env` keeps working unchanged. A stored default project beats the `project_key` in `devworkwire.yml`; with no stored projects, `devworkwire.yml` still works as before. If the stored config cannot be read (for example a corrupt file), environment-only setups keep working and `config show` prints a warning.
 
 ## Environment Variables (`.env`)
 
-Create a `.env` file in the project root. Start from the template:
+Optional if you used `dwire config setup`. To use a `.env` file, create it in the project root. Start from the template:
 
 ```bash
 cp .env.example .env
 ```
 
-### Required Variables
+### Variables
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -51,9 +77,6 @@ logging:
     colored: true
 
 jira:
-  base_url: !ENV ${JIRA_BASE_URL}
-  api_token: !ENV ${JIRA_API_TOKEN}
-  email: !ENV ${JIRA_EMAIL}
   api_version: "3"
   timeout: 30
   max_retries: 3
@@ -72,14 +95,11 @@ Use `format_type: "text"` for local and container runs so logs are easy to read.
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `jira.base_url` | Jira instance base URL | from `.env` |
-| `jira.email` | Authentication email | from `.env` |
-| `jira.api_token` | API token | from `.env` |
 | `jira.api_version` | Jira REST API version | `3` |
 | `jira.timeout` | Request timeout (seconds) | `30` |
 | `jira.max_retries` | Max attempts for transient failures (read requests only) | `3` in the shipped YAML files (`4` if the key is omitted) |
 
-The `!ENV ${VAR_NAME}` syntax in YAML files pulls values from environment variables. This keeps secrets out of committed config files.
+The Jira URL, email, token and project key are not in these files; see the resolution order above. The `!ENV ${VAR_NAME}` syntax is still supported in YAML files for any other value you want to pull from the environment.
 
 ## Project Configuration (`devworkwire.yml`)
 
@@ -101,7 +121,7 @@ field_mappings:
 | Field | Description | Default |
 |-------|-------------|---------|
 | `provider` | Provider adapter to use (Phase 1: `jira` only) | **required** |
-| `project_key` | Project key in the tracker for issue creation | **required** |
+| `project_key` | Project key for issue creation; used only when no project is stored with `dwire config` | optional |
 | `field_mappings.story_points` | Custom field ID for story points | `customfield_10011` |
 | `transition_overrides` | Map DevWorkWire transition names to provider-specific names | `{}` |
 
@@ -111,12 +131,12 @@ field_mappings:
 2. Click **Create API token**
 3. Give it a label (e.g., "DevWorkWire")
 4. Copy the token — you won't be able to see it again
-5. Paste it into `.env` as `JIRA_API_TOKEN`
+5. Paste it at the `dwire config setup` token prompt (or into `.env` as `JIRA_API_TOKEN`)
 
 ## Troubleshooting
 
-**"Project configuration not found"**
-→ Create a `devworkwire.yml` in the directory where you run `dwire`. Start from `devworkwire.example.yml`.
+**"Jira is not configured (missing: …)"**
+→ Run `dwire config setup`, or set the listed `JIRA_*` environment variables. `dwire config show` lists what is missing.
 
 **"Configuration file not found"**
 → Check that `APP_ENV` matches an existing config file name. For `APP_ENV=local`, the file must be `config_local.yml`.
@@ -124,5 +144,5 @@ field_mappings:
 **"Jira API returned 401"**
 → Verify `JIRA_EMAIL` and `JIRA_API_TOKEN` are correct. Make sure the API token hasn't expired.
 
-**"Unknown environment variable JIRA_BASE_URL"**
-→ Ensure the `.env` file is in the project root and uses the correct variable names. Run `cat .env` to verify.
+**Values come from the wrong place**
+→ Run `dwire config show`; the source column says whether each value comes from `env`, `db` or `devworkwire.yml`. Environment variables (including `.env`) override the stored settings.

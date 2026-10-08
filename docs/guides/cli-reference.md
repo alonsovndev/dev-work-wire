@@ -99,6 +99,20 @@ dwire list-assigned --assignee 557058:abcd-1234
 
 Without `--assignee`, the command uses the authenticated Jira user. With it, supply a Jira account ID, not an email address or display name. The command lists open work in the configured project across all issue types, ordered by most recently updated. Each row shows key, issue type, title, and status. “Open” means the Jira status category is not Done. An empty result prints a message and succeeds.
 
+### Configure the Jira connection
+
+```bash
+dwire config setup [--base-url URL] [--email EMAIL] [--project-key KEY]
+dwire config add-project KEY [--default]
+dwire config set-default KEY
+dwire config remove-project KEY
+dwire config show
+dwire config clear [--yes]
+dwire --project KEY <command>
+```
+
+`setup` prompts for anything not passed as an option, and always prompts for the API token (hidden; there is no token option). Re-running it keeps the stored token if you press Enter and keeps your projects. The first project becomes the default; `add-project`, `set-default` and `remove-project` manage the list. `show` prints the effective values with their source (`env`, `db`, `--project` or `devworkwire.yml`), the project list, and masks the token. `clear` deletes the connection and projects after confirmation. The root `--project KEY` option runs any command against another configured project. `setup` is interactive-only, so it fails under `--format json`; the other `config` commands support JSON (`clear` needs `--yes`). See [Configuration](../getting-started/configuration.md) for precedence and storage.
+
 ### Preview and validate a folder
 
 ```bash
