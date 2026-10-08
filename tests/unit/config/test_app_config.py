@@ -33,10 +33,24 @@ def test_app_env_test_loads_test_config(monkeypatch):
     assert config.get_config("logging.level") == "INFO"
 
 
-def test_get_config_resolves_env_interpolation(monkeypatch):
+def test_get_config_resolves_env_interpolation(monkeypatch, tmp_path):
+    (tmp_path / "config_local.yml").write_text(
+        "jira:\n  base_url: !ENV ${JIRA_BASE_URL}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(Paths, "CONFIG_DIR", tmp_path)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setattr(Paths, "ENV_FILE_PATH", Path("/nonexistent/.env"))
     monkeypatch.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
     config = AppConfig.instance()
     assert config.get_config("jira.base_url") == "https://example.atlassian.net"
+
+
+def test_default_config_loads_without_jira_environment_variables(monkeypatch):
+    for name in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setattr(Paths, "ENV_FILE_PATH", Path("/nonexistent/.env"))
+    assert AppConfig.instance().get_config("jira.timeout") == 30
 
 
 def test_get_config_missing_key_returns_default():

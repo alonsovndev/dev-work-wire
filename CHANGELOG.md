@@ -31,6 +31,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `dwire config setup|add-project|set-default|remove-project|show|clear`
+  stores the Jira base URL, email and API token plus a list of projects with
+  one default in a user-level SQLite database
+  (`~/.config/devworkwire/config.db`, mode `0600`; token in plaintext), so
+  no code or file editing is needed. A root `--project KEY` option picks a
+  configured project for one run. Connection values resolve as environment
+  variables (incl. `.env`) > stored config; the project key as `--project` >
+  stored default > `devworkwire.yml`. `project_key` in `devworkwire.yml` is
+  now optional. `JIRA_PROJECT_KEY` is deliberately not read: the old
+  `.env.example` shipped it unused, and honouring it would silently
+  override existing `devworkwire.yml` setups.
+
 - Interactive, keyboard-navigable CLI menu (`InquirerPy`), shown when
   `dwire` is run with no subcommand; `dwire fetch-epic`/`dwire create-epic`
   remain available for direct invocation/scripting.

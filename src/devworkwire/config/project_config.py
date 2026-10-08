@@ -1,7 +1,8 @@
 """Per-project DevWorkWire configuration (``devworkwire.yml``).
 
-Declares which provider serves the project, the project key, field mappings,
-and transition-name overrides. Secrets never live here; they stay in
+Declares which provider serves the project, an optional project key (the
+``dwire config`` default project and ``--project`` take precedence), field
+mappings, and transition-name overrides. Secrets never live here; they stay in
 environment variables consumed via ``AppConfig``.
 """
 
@@ -23,11 +24,17 @@ class ProjectConfig:
     """Immutable project-level configuration for one DevWorkWire project."""
 
     provider: str
-    project_key: str
+    project_key: Optional[str] = None
     field_mappings: Dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_FIELD_MAPPINGS)
     )
     transition_overrides: Dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def load_if_present(cls, path: Optional[Path] = None) -> Optional["ProjectConfig"]:
+        """Like ``load`` but returns None when the config file does not exist."""
+        config_path = Path(path) if path is not None else Path.cwd() / CONFIG_FILE_NAME
+        return cls.load(config_path) if config_path.exists() else None
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "ProjectConfig":
@@ -65,11 +72,6 @@ class ProjectConfig:
             raise BusinessRuleViolation(
                 f"Unsupported provider: {provider} (supported: {', '.join(SUPPORTED_PROVIDERS)})"
             )
-        if not project_key:
-            raise BusinessRuleViolation(
-                f"Project configuration is incomplete: 'project_key' is required in {CONFIG_FILE_NAME}"
-            )
-
         field_mappings = {
             **DEFAULT_FIELD_MAPPINGS,
             **(raw.get("field_mappings") or {}),

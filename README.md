@@ -28,8 +28,8 @@ cd dev-work-wire
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env                        # add your Jira credentials
-cp devworkwire.example.yml devworkwire.yml  # set your project key
+dwire config setup   # Jira URL, email, API token and your first project, stored for your user
+dwire config add-project OTHER   # optional: more projects; pick one per run with --project
 
 dwire
 ```

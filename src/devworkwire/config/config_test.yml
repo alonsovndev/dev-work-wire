@@ -10,9 +10,6 @@ logging:
     colored: true
 
 jira:
-  base_url: "https://your-jira-instance.atlassian.net"
-  api_token: "test_token_123"
-  email: "test@gmail.com"
   api_version: "3"
   timeout: 10
   max_retries: 1
