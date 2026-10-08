@@ -16,8 +16,11 @@ import typer
 from InquirerPy import inquirer
 from typer.core import TyperGroup
 
+from devworkwire.config.jira_connection import ResolvedValue
 from devworkwire.core.composition import Container
 from devworkwire.core.domain import Epic, Label, Priority, StoryPoints, UserStory
+from devworkwire.core.domain.exceptions import BusinessRuleViolation
+from devworkwire.core.ports.jira_config_store import JiraCredentials, normalize_project_key
 from devworkwire.features.import_.application.folder_preview import (
     FolderPreview,
     preview_folder as load_folder_preview,
@@ -72,6 +75,8 @@ class JsonTyperGroup(TyperGroup):
 
 
 app = typer.Typer(cls=JsonTyperGroup)
+config_app = typer.Typer(help="Manage the stored Jira connection and projects.")
+app.add_typer(config_app, name="config")
 container = Container()
 
 
@@ -260,9 +265,13 @@ def _preview_data(preview: FolderPreview, state: ImportState | None) -> dict:
 def main(
     ctx: typer.Context,
     output_format: OutputFormat = typer.Option(OutputFormat.text, "--format"),
+    project: Optional[str] = typer.Option(
+        None, "--project", help="Jira project key for this run (default: the stored default project)"
+    ),
 ) -> None:
     """DevWorkWire CLI. Run without a subcommand for the interactive menu."""
     _output_format.set(output_format)
+    container.select_project(project)
     if ctx.invoked_subcommand is None:
         if output_format == OutputFormat.json:
             raise typer.BadParameter("JSON output requires a direct command", param_hint="--format")
@@ -360,6 +369,51 @@ def rebind_import_story(folder_path: str, old_id: str, new_id: str) -> None:
 def retire_import_story(folder_path: str, story_id: str) -> None:
     """Remove a recorded story that is no longer in stories.md."""
     _run_command("retire-import-story", lambda: _reconcile_missing_story(folder_path, story_id, None))
+
+
+@config_app.command("setup")
+def config_setup(
+    base_url: Optional[str] = typer.Option(None, "--base-url", help="e.g. https://your-domain.atlassian.net"),
+    email: Optional[str] = typer.Option(None, "--email", help="Atlassian account email"),
+    project_key: Optional[str] = typer.Option(None, "--project-key", help="Project to add (first one becomes the default)"),
+) -> None:
+    """Store the Jira connection (the API token is always prompted, never a flag)."""
+    _run_command("config setup", lambda: _config_setup(base_url, email, project_key))
+
+
+@config_app.command("add-project")
+def config_add_project(
+    project_key: str,
+    make_default: bool = typer.Option(False, "--default", help="Also make it the default project"),
+) -> None:
+    """Add a Jira project you work in. The first project added becomes the default."""
+    _run_command("config add-project", lambda: _config_projects("add", project_key, make_default))
+
+
+@config_app.command("set-default")
+def config_set_default(project_key: str) -> None:
+    """Choose which configured project is used when --project is not given."""
+    _run_command("config set-default", lambda: _config_projects("default", project_key))
+
+
+@config_app.command("remove-project")
+def config_remove_project(project_key: str) -> None:
+    """Remove a project; if it was the default, the oldest remaining one takes over."""
+    _run_command("config remove-project", lambda: _config_projects("remove", project_key))
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Show the effective Jira settings, projects, and where each value comes from. The token is masked."""
+    _run_command("config show", _config_show)
+
+
+@config_app.command("clear")
+def config_clear(
+    yes: bool = typer.Option(False, "--yes", help="Clear without an interactive confirmation"),
+) -> None:
+    """Delete the stored connection and projects (environment variables are not touched)."""
+    _run_command("config clear", lambda: _config_clear(yes))
 
 
 async def _fetch_epic(key: str) -> bool:
@@ -768,6 +822,137 @@ def _prompt_item(include_points: bool = False) -> WorkItemInput:
             if points < 0:
                 raise ValueError("Story points cannot be negative")
     return WorkItemInput(title, description, priority, labels, points)
+
+
+def _mask_token(token: str) -> str:
+    return f"****{token[-4:]}" if len(token) >= 12 else "****"
+
+
+def _config_failure(action: str, error: Exception, code: str = "COMMAND_FAILED") -> bool:
+    typer.echo(f"Error {action}: {error}", err=True)
+    _record("error", {}, code)
+    return False
+
+
+def _config_setup(base_url: str | None, email: str | None, project_key: str | None) -> bool:
+    if _output_format.get() == OutputFormat.json:
+        return _config_failure(
+            "configuring Jira",
+            ValueError("setup prompts for the API token; run it without --format json"),
+            "INVALID_ARGUMENT",
+        )
+    try:
+        stored = container.config_store.load_credentials()
+        projects = container.config_store.list_projects()
+        base_url = base_url or typer.prompt("Jira base URL", default=stored.base_url if stored else None)
+        email = email or typer.prompt("Atlassian email", default=stored.email if stored else None)
+        if not project_key and not projects:
+            project_key = typer.prompt("Project key")
+        api_token = typer.prompt(
+            "API token (hidden" + ("; Enter keeps the stored one" if stored else "") + ")",
+            default="", hide_input=True, show_default=False,
+        ) or (stored.api_token if stored else "")
+        credentials = JiraCredentials(base_url, email, api_token)
+        if project_key:
+            normalize_project_key(project_key)
+    except BusinessRuleViolation as error:
+        return _config_failure("configuring Jira", error, "VALIDATION_FAILED")
+    except (typer.Abort, KeyboardInterrupt):
+        typer.echo("Aborted; nothing was saved.", err=True)
+        _record("cancelled", {})
+        return False
+    except Exception as error:
+        return _config_failure("configuring Jira", error)
+    try:
+        container.config_store.save_credentials(credentials)
+        if project_key:
+            container.config_store.add_project(project_key)
+    except Exception as error:
+        return _config_failure("configuring Jira", error)
+    container.reset()
+    _record("completed", {"base_url": credentials.base_url, "email": credentials.email})
+    typer.echo(f"Saved Jira connection for {credentials.email} at {credentials.base_url}.")
+    return True
+
+
+def _config_projects(action: str, project_key: str, make_default: bool = False) -> bool:
+    store = container.config_store
+    try:
+        if action == "add":
+            store.add_project(project_key, make_default)
+        elif action == "default":
+            store.set_default_project(project_key)
+        else:
+            store.remove_project(project_key)
+        projects = store.list_projects()
+    except BusinessRuleViolation as error:
+        return _config_failure("updating projects", error, "VALIDATION_FAILED")
+    except Exception as error:
+        return _config_failure("updating projects", error)
+    container.reset()
+    data = {"projects": [{"key": project.key, "default": project.is_default} for project in projects]}
+    _record("completed", data)
+    typer.echo(_projects_line(projects))
+    return True
+
+
+def _projects_line(projects) -> str:
+    if not projects:
+        return "Projects: none configured."
+    return "Projects: " + ", ".join(f"{project.key}{' (default)' if project.is_default else ''}" for project in projects)
+
+
+def _config_show() -> bool:
+    try:
+        connection, _ = container.resolve_jira_connection()
+    except Exception as error:
+        return _config_failure("reading Jira settings", error)
+    projects = connection.projects
+    fields = {
+        "base_url": connection.base_url,
+        "email": connection.email,
+        "api_token": connection.api_token,
+        "project_key": connection.project_key,
+    }
+
+    def shown(name: str, resolved: ResolvedValue | None) -> dict | None:
+        if resolved is None:
+            return None
+        value = _mask_token(resolved.value) if name == "api_token" else resolved.value
+        return {"value": value, "source": resolved.source}
+
+    data: dict = {name: shown(name, resolved) for name, resolved in fields.items()}
+    data["projects"] = [{"key": project.key, "default": project.is_default} for project in projects]
+    _record("completed", data)
+    for name in fields:
+        entry = data[name]
+        typer.echo(f"{name:<12} {entry['value']}  ({entry['source']})" if entry else f"{name:<12} not set")
+    typer.echo(_projects_line(projects))
+    if connection.store_error:
+        typer.echo(f"Warning: the stored config could not be read: {connection.store_error}", err=True)
+    if any(data[name] is None for name in fields):
+        typer.echo("Run `dwire config setup` to fill the missing values.")
+    return True
+
+
+def _config_clear(yes: bool) -> bool:
+    if not yes:
+        if _output_format.get() == OutputFormat.json or not sys.stdin.isatty():
+            typer.echo("Use --yes to clear the stored Jira settings without an interactive terminal.", err=True)
+            _record("error", {}, "CONFIRMATION_REQUIRED")
+            return False
+        if not typer.confirm("Delete the stored Jira connection and projects?", default=False):
+            _record("cancelled", {})
+            typer.echo("Nothing was deleted.")
+            return True
+    try:
+        container.config_store.clear()
+    except Exception as error:
+        return _config_failure("clearing Jira settings", error)
+    container.reset()
+    _record("completed", {})
+    typer.echo("Stored Jira settings deleted.")
+    return True
 
 
 def _run_interactive_menu() -> None:
