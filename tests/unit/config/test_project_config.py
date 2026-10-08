@@ -75,10 +75,15 @@ class TestProjectConfigLoad:
 
         assert "Unsupported provider: linear" in str(exc_info.value)
 
-    def test_missing_project_key_raises(self, tmp_path):
+    def test_project_key_is_optional(self, tmp_path):
         config_file = write_config(tmp_path, "provider: jira\n")
 
-        with pytest.raises(BusinessRuleViolation) as exc_info:
-            ProjectConfig.load(config_file)
+        assert ProjectConfig.load(config_file).project_key is None
 
-        assert "'project_key' is required" in str(exc_info.value)
+    def test_load_if_present_returns_none_for_missing_file(self, tmp_path):
+        assert ProjectConfig.load_if_present(tmp_path / "devworkwire.yml") is None
+
+    def test_load_if_present_loads_existing_file(self, tmp_path):
+        config_file = write_config(tmp_path, "provider: jira\nproject_key: PROJ\n")
+
+        assert ProjectConfig.load_if_present(config_file).project_key == "PROJ"

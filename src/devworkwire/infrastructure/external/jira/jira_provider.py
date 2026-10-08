@@ -5,6 +5,7 @@ import backoff
 import httpx
 
 from devworkwire.core.domain import Epic, IssueId, Label, Priority, StoryPoints, UserStory
+from devworkwire.core.ports.jira_config_store import PROJECT_KEY_RE
 from devworkwire.core.ports.work_item_provider import WorkItemProvider, WorkItemSummary
 from devworkwire.infrastructure.external.jira.markdown_to_adf import markdown_to_adf
 from devworkwire.infrastructure.external.jira.settings import JiraSettings
@@ -74,7 +75,7 @@ _MOSCOW_TO_JIRA_PRIORITY = {
 }
 _ISSUE_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*-\d+\Z")
 _ACCOUNT_ID_RE = re.compile(r"[A-Za-z0-9:_-]+\Z")
-_PROJECT_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
+_PROJECT_KEY_RE = PROJECT_KEY_RE
 
 
 def _jira_priority_name(priority: Priority) -> str:
