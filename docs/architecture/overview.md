@@ -18,14 +18,14 @@ src/devworkwire/
 │   ├── service/                 # (empty — reserved, see Planned Work)
 │   └── composition.py           # Composition root: Container wires JiraProvider from config
 ├── features/
-│   ├── import_/application/     # Epic/stories markdown parsers
+│   ├── import_/application/     # Markdown parsers, local folder preview/validation, resumable import state and lock
 │   ├── progress/                # (empty — reserved)
 │   └── workitem/                # (empty — reserved)
 ├── infrastructure/
-│   ├── external/jira/           # JiraProvider (WorkItemProvider impl) + JiraSettings
+│   ├── external/jira/           # JiraProvider (WorkItemProvider impl), JiraSettings, Markdown-to-ADF converter
 │   └── local/store/             # (empty — reserved)
 ├── presentation/
-│   ├── cli/                     # Typer app: direct commands + interactive menu
+│   ├── cli/                     # Typer app (main.py), menu screen (menu_view.py), banner, epic/story panels
 │   └── mcp/                     # (empty — no server is planned for the first AI integration)
 └── shared/                      # Structured logging, retry decorator
 ```
@@ -83,7 +83,7 @@ outcomes stop the import for manual resolution.
 
 ## Jira Adapter (`infrastructure/external/jira/`)
 
-- **`settings.py`** — `JiraSettings`: frozen dataclass holding `base_url`, `username`, `api_token`, `project_key`, `api_version`, `timeout`, `max_retries`. Built by the composition root from `AppConfig` + `ProjectConfig`.
+- **`settings.py`** — `JiraSettings`: frozen dataclass holding `base_url`, `username`, `api_token`, `project_key`, `api_version`, `timeout`, `max_retries`, `story_points_field`. Built by the composition root from `AppConfig` + `ProjectConfig`.
 - **`jira_provider.py`** — `JiraProvider(WorkItemProvider)`: implements epic and story creation/retrieval plus paginated story and assigned-work listing over `httpx`, with retries for transient failures. `create_story` links to its parent Epic via Jira's `parent` field and sends story points using the configured field mapping. The HTTP client honors `settings.timeout`; issue URLs honor `settings.api_version`.
 
 ## Configuration (`config/`)

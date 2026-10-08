@@ -27,6 +27,7 @@ Welcome to the DevWorkWire documentation. Pick your path:
 devworkwire/
 ├── docs/                  # This documentation
 ├── scripts/               # Helper scripts (run-cli)
+├── skills/                # Portable AI agent skill — see guides/ai-agent-skill.md
 ├── src/devworkwire/       # Application source — see architecture/overview.md
 └── tests/                 # Unit and integration tests, mirrored per source module
 ```
