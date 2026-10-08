@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Interactive menu option `9`, "Configure connection and projects": a sub-menu
+  over the `dwire config` actions (show, set up, add project, choose default,
+  remove project). `config clear` stays CLI-only because it is destructive.
 - `dwire config setup|add-project|set-default|remove-project|show|clear`
   stores the Jira base URL, email and API token plus a list of projects with
   one default in a user-level SQLite database

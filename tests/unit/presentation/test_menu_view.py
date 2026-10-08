@@ -24,6 +24,7 @@ def test_full_menu_uses_grouped_panels_and_provider_neutral_wording():
     assert "Jira" not in screen
     assert "[7]  Import epic and stories from folder" in screen
     assert "[8]  Preview and validate folder" in screen
+    assert "[9]  Configure connection and projects" in screen
     assert all(len(line) <= 120 for line in screen.splitlines())
 
 
@@ -31,7 +32,7 @@ def test_compact_menu_keeps_all_shortcuts_visible():
     screen = _plain_text(48, 24)
 
     assert "╭" not in screen
-    assert all(f"[{number}]" in screen for number in range(9))
+    assert all(f"[{number}]" in screen for number in range(10))
     assert all(len(line) <= 48 for line in screen.splitlines())
 
 
@@ -42,9 +43,9 @@ def test_very_narrow_menu_does_not_exceed_terminal_width():
 
 
 def test_short_menu_keeps_each_selected_action_visible():
-    for selected in range(9):
+    for selected in range(10):
         screen = _plain_text(80, 10, selected)
-        number = selected + 1 if selected < 8 else 0
+        number = selected + 1 if selected < 9 else 0
         assert len(screen.splitlines()) <= 10
         assert f"❯ [{number}]" in screen
 
@@ -76,6 +77,15 @@ def test_help_lists_keyboard_controls_and_actions():
     assert "Esc      Return to the menu" in screen
     assert "[0] Exit" in screen
     assert "[8] Preview and validate folder" in screen
+    assert "[9] Configure connection and projects" in screen
+    assert "0–9" in screen
+
+
+def test_help_never_exceeds_terminal_height():
+    for height in range(3, 30):
+        screen = _plain_text(80, height, show_help=True)
+        assert len(screen.splitlines()) <= height, height
+    assert "[9] Configure connection and projects" in _plain_text(80, 17, show_help=True)
 
 
 def _press_keys(monkeypatch, keys: str) -> str:
@@ -102,6 +112,10 @@ def test_arrow_keys_and_enter_select_highlighted_action(monkeypatch):
 
 def test_help_does_not_trigger_shortcuts_until_closed(monkeypatch):
     assert _press_keys(monkeypatch, "?7\x1b8") == main._PREVIEW_FOLDER
+
+
+def test_nine_shortcut_selects_configure(monkeypatch):
+    assert _press_keys(monkeypatch, "9") == main._CONFIGURE
 
 
 def test_zero_exits_menu(monkeypatch):

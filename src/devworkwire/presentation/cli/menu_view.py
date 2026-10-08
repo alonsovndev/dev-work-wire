@@ -109,7 +109,7 @@ def _render_full(
 
     exit_style = "bg:#ff5f72 fg:#000000 bold" if selected == option_index else "fg:#ff5f72"
     _add_line(fragments, (exit_style, " ❯ [0]  Exit " if selected == option_index else "   [0]  Exit"))
-    _add_line(fragments, (muted, "↑ ↓ Navigate   Enter Select   0–8 Shortcut   Esc Exit   ? Help"))
+    _add_line(fragments, (muted, "↑ ↓ Navigate   Enter Select   0–9 Shortcut   Esc Exit   ? Help"))
 
 
 def _render_compact(
@@ -140,7 +140,7 @@ def _render_compact(
     exit_style = "bg:#ff5f72 fg:#000000 bold" if selected == option_index else "fg:#ff5f72"
     exit_text = " ❯ [0] Exit" if selected == option_index else "   [0] Exit"
     _add_line(fragments, (exit_style, _clip(exit_text, width).ljust(width)))
-    guide = "↑↓ Move  Enter Select  0–8 Shortcut  Esc Exit  ? Help"
+    guide = "↑↓ Move  Enter Select  0–9 Shortcut  Esc Exit  ? Help"
     if width < 64:
         guide = "↑↓ Move  Enter Select  Esc Exit  ? Help"
     _add_line(fragments, ("fg:#a5b4c4", _clip(guide, width)))
@@ -189,7 +189,7 @@ def render_menu(
             short_help = (
                 "Esc Back · ? Help",
                 "↑↓ Move · Enter Select",
-                "0–8 Select actions",
+                "0–9 Select actions",
             )
             for line in short_help[:max(1, height)]:
                 _add_line(fragments, ("fg:#00d7e9", _clip(line, width)))
@@ -197,10 +197,11 @@ def render_menu(
         _add_line(fragments, ("fg:#00d7e9 bold", _clip("Keyboard help", width)))
         _add_line(fragments, ("", _clip("↑ / ↓    Move between actions", width)))
         _add_line(fragments, ("", _clip("Enter    Select the highlighted action", width)))
-        _add_line(fragments, ("", _clip("0–8      Select an action directly", width)))
+        _add_line(fragments, ("", _clip("0–9      Select an action directly", width)))
         _add_line(fragments, ("", _clip("Esc      Return to the menu", width)))
         _add_line(fragments, ("", _clip("?        Show this help", width)))
-        if height >= 16:
+        # Header (6 lines) + blank + every option + Exit.
+        if height >= 8 + sum(len(group.options) for group in groups):
             _add_line(fragments, ("", ""))
             for group in groups:
                 for option in group.options:

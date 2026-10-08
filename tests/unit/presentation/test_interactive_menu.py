@@ -131,3 +131,135 @@ def test_create_story_menu_rejects_invalid_points(monkeypatch, capsys):
 
     create.assert_not_called()
     assert "Invalid input" in capsys.readouterr().err
+
+
+def _configure(monkeypatch, selections, answers=(), stored_projects=()):
+    """Run the Configure sub-menu with scripted select/text/confirm answers."""
+    from devworkwire.core.ports.jira_config_store import JiraProject
+    _menu(monkeypatch, main._CONFIGURE, list(answers))
+    picks = iter(selections)
+    select = MagicMock(side_effect=lambda **_: _prompt(next(picks)))
+    monkeypatch.setattr(main.inquirer, "select", select)
+    monkeypatch.setattr(main.container.config_store, "list_projects", lambda: [
+        JiraProject(key, index == 0) for index, key in enumerate(stored_projects)
+    ])
+    return select
+
+
+def test_configure_show_prints_current_settings(monkeypatch):
+    _configure(monkeypatch, [main._CONFIG_SHOW])
+    show = MagicMock(return_value=True)
+    monkeypatch.setattr(main, "_config_show", show)
+
+    main._run_interactive_menu()
+
+    show.assert_called_once_with()
+
+
+def test_configure_setup_runs_the_prompting_setup(monkeypatch):
+    _configure(monkeypatch, [main._CONFIG_SETUP])
+    setup = MagicMock(return_value=True)
+    monkeypatch.setattr(main, "_config_setup", setup)
+
+    main._run_interactive_menu()
+
+    setup.assert_called_once_with(None, None, None)
+
+
+def test_configure_add_project_asks_key_and_default(monkeypatch):
+    _configure(monkeypatch, [main._CONFIG_ADD_PROJECT], ["web"])
+    monkeypatch.setattr(main.inquirer, "confirm", MagicMock(return_value=_prompt(True)))
+    projects = MagicMock(return_value=True)
+    monkeypatch.setattr(main, "_config_projects", projects)
+
+    main._run_interactive_menu()
+
+    projects.assert_called_once_with("add", "web", True)
+
+
+def test_configure_set_default_offers_stored_projects(monkeypatch):
+    select = _configure(monkeypatch, [main._CONFIG_SET_DEFAULT, "WEB"], stored_projects=("PROJ", "WEB"))
+    projects = MagicMock(return_value=True)
+    monkeypatch.setattr(main, "_config_projects", projects)
+
+    main._run_interactive_menu()
+
+    projects.assert_called_once_with("default", "WEB")
+    choices = select.call_args_list[1].kwargs["choices"]
+    assert [(choice.value, choice.name) for choice in choices] == [
+        ("PROJ", "PROJ (default)"), ("WEB", "WEB"), (None, main._CONFIG_BACK),
+    ]
+
+
+def test_configure_remove_project_uses_the_project_key(monkeypatch):
+    _configure(monkeypatch, [main._CONFIG_REMOVE_PROJECT, "PROJ"], stored_projects=("PROJ",))
+    projects = MagicMock(return_value=True)
+    monkeypatch.setattr(main, "_config_projects", projects)
+
+    main._run_interactive_menu()
+
+    projects.assert_called_once_with("remove", "PROJ")
+
+
+def test_configure_project_picker_without_projects_explains_and_pauses(monkeypatch, capsys):
+    _configure(monkeypatch, [main._CONFIG_SET_DEFAULT])
+    monkeypatch.setattr(main, "_config_projects", MagicMock(side_effect=AssertionError))
+
+    main._run_interactive_menu()
+
+    assert "No projects configured yet" in capsys.readouterr().out
+    assert main.inquirer.confirm.call_count == 1
+
+
+def test_configure_project_picker_back_changes_nothing_and_skips_the_pause(monkeypatch):
+    _configure(monkeypatch, [main._CONFIG_REMOVE_PROJECT, None], stored_projects=("PROJ",))
+    projects = MagicMock(return_value=True)
+    monkeypatch.setattr(main, "_config_projects", projects)
+
+    main._run_interactive_menu()
+
+    projects.assert_not_called()
+    main.inquirer.confirm.assert_not_called()
+
+
+def test_configure_project_picker_reports_unreadable_store(monkeypatch, capsys):
+    _configure(monkeypatch, [main._CONFIG_SET_DEFAULT])
+    monkeypatch.setattr(
+        main.container.config_store, "list_projects",
+        MagicMock(side_effect=RuntimeError("file is not a database")),
+    )
+
+    main._run_interactive_menu()
+
+    assert "file is not a database" in capsys.readouterr().err
+
+
+def test_configure_add_project_rejects_invalid_key_before_asking_about_default(monkeypatch, capsys):
+    _configure(monkeypatch, [main._CONFIG_ADD_PROJECT], ["1-bad"])
+    projects = MagicMock(return_value=True)
+    monkeypatch.setattr(main, "_config_projects", projects)
+
+    main._run_interactive_menu()
+
+    projects.assert_not_called()
+    assert "project key must start with a letter" in capsys.readouterr().err
+    main.inquirer.confirm.assert_called_once()  # only the "press Enter" pause
+
+
+def test_configure_back_skips_the_pause_and_does_nothing(monkeypatch):
+    _configure(monkeypatch, [main._CONFIG_BACK])
+    for name in ("_config_show", "_config_setup", "_config_projects"):
+        monkeypatch.setattr(main, name, MagicMock(side_effect=AssertionError(name)))
+
+    main._run_interactive_menu()
+
+    main.inquirer.confirm.assert_not_called()
+
+
+def test_ctrl_c_in_the_configure_submenu_returns_to_the_main_menu(monkeypatch):
+    _configure(monkeypatch, [])
+    monkeypatch.setattr(main.inquirer, "select", MagicMock(side_effect=KeyboardInterrupt))
+
+    main._run_interactive_menu()
+
+    main.inquirer.confirm.assert_not_called()
