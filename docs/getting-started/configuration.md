@@ -31,7 +31,7 @@ The value of `APP_ENV` determines which YAML config file is loaded:
 |-----------|-------------------|----------|
 | `local` | `src/devworkwire/config/config_local.yml` | Local development |
 | `test` | `src/devworkwire/config/config_test.yml` | Running tests |
-| `dev` | `src/devworkwire/config/config_dev.yml` (create if needed) | Shared dev environment |
+| `dev` | `src/devworkwire/config/config_dev.yml` | Shared dev environment |
 | `prod` | `src/devworkwire/config/config_prod.yml` (create if needed) | Production |
 
 ## YAML Configuration
@@ -77,7 +77,7 @@ Use `format_type: "text"` for local and container runs so logs are easy to read.
 | `jira.api_token` | API token | from `.env` |
 | `jira.api_version` | Jira REST API version | `3` |
 | `jira.timeout` | Request timeout (seconds) | `30` |
-| `jira.max_retries` | Max retry attempts on failure | `3` |
+| `jira.max_retries` | Max attempts for transient failures (read requests only) | `3` in the shipped YAML files (`4` if the key is omitted) |
 
 The `!ENV ${VAR_NAME}` syntax in YAML files pulls values from environment variables. This keeps secrets out of committed config files.
 

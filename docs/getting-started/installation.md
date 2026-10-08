@@ -27,8 +27,8 @@ You should see the DevWorkWire welcome screen with an interactive menu.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/alonsovndev/devworkwire.git
-cd devworkwire
+git clone https://github.com/alonsovndev/dev-work-wire.git
+cd dev-work-wire
 ```
 
 ### 2. Create and activate a virtual environment

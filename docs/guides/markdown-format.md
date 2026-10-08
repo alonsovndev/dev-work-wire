@@ -21,7 +21,7 @@ before any Jira item is created. These are the only Markdown formats supported.
 | Field | Required | Description |
 |---|---|---|
 | `# Epic: [Title]` | Yes for folder commands | Epic title, on its own heading line |
-| `**Priority**:` | No | Passed through as-is to `Priority.from_jira_name()` |
+| `**Priority**:` | No | Passed to `Priority.from_jira_name()`; see [Priority mapping](#priority-mapping) |
 | `**Labels**:` | No | Comma-separated; each becomes a `Label` (no spaces allowed within a label name) |
 | `**Epic Description:**` | No — defaults to empty | Free text; captured up to the next `##` heading or end of file |
 
@@ -53,7 +53,7 @@ is a block starting with a `### <Story ID>: <Title>` heading:
 | Field | Required | Description |
 |---|---|---|
 | `### <id>: [Title]` | Yes (per block) | Story title |
-| `**Priority**:` | No | `Priority.from_jira_name()` |
+| `**Priority**:` | No | `Priority.from_jira_name()`; see [Priority mapping](#priority-mapping) |
 | `**Effort Estimate**:` | No | Nonnegative integer story points, sent to Jira using `field_mappings.story_points` |
 | `**Labels**:` | No | Same rules as the epic's `**Labels**:` |
 | `**As a**` / `**I want to**` / `**So that**` + `**Acceptance Criteria**:` | No | Composed into the story's `description` |
@@ -65,6 +65,28 @@ Other fields (`**Story ID**`, `**Epic Link**`, `**Issue Type**`, `**Status**`,
 The heading's `<id>` is the stable identity used by resumable imports. IDs must
 be unique within `stories.md`; `epic` is reserved. Renaming or removing an
 uploaded ID requires explicit reconciliation before further imports.
+
+### Priority mapping
+
+When creating an issue, the Jira adapter maps MoSCoW wording to Jira's default
+priority names:
+
+| Markdown value | Jira priority |
+|---|---|
+| `Must Have` | `Highest` |
+| `Should Have` | `High` |
+| `Could Have` | `Medium` |
+| `Won't Have` | `Low` |
+
+Any other value (for example `High`) is sent unchanged, so it must match a
+priority configured in your Jira project.
+
+### Description formatting
+
+Epic and story descriptions are converted to Jira's rich text format. The
+supported Markdown subset is headings, `**bold**`, `[links](url)`, bullet lists,
+and `- [ ]` checklists. Checklist items appear as bullets prefixed with ☐ or ☑,
+not as Jira task lists.
 
 ### How It's Parsed
 

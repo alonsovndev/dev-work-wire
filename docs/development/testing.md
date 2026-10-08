@@ -15,10 +15,16 @@ tests/
 │   ├── domain/
 │   │   ├── test_entities.py         # Epic / UserStory construction and validation
 │   │   └── test_value_objects.py    # IssueId / Priority / StoryPoints / Label
+│   ├── import_/
+│   │   └── test_markdown_parser.py  # epic.md / stories.md parsing
 │   ├── jira/
-│   │   └── test_jira_provider.py    # JiraProvider against respx-mocked HTTP (incl. retry/timeout/api_version wiring)
+│   │   ├── test_jira_provider.py    # JiraProvider against respx-mocked HTTP (incl. retry/timeout/api_version wiring)
+│   │   └── test_markdown_to_adf.py  # Markdown description -> Atlassian Document Format conversion
 │   ├── presentation/
-│   │   └── test_interactive_menu.py # Interactive menu wiring (selection -> prompt -> action), mocked
+│   │   ├── test_banner.py           # Startup banner rendering
+│   │   ├── test_epic_panel.py       # Bordered epic/story detail panels
+│   │   ├── test_interactive_menu.py # Interactive menu wiring (selection -> prompt -> action), mocked
+│   │   └── test_menu_view.py        # Menu screen renderer and keyboard shortcuts
 │   └── shared/
 │       └── test_log_config.py       # Structured logging formatters and context
 └── integration/
@@ -69,7 +75,10 @@ Use `respx` to mock HTTP responses against the real `JiraProvider`:
 @respx.mock
 async def test_fetch_epic(provider):
     respx.get("https://jira.example.com/rest/api/3/issue/PROJ-1").mock(
-        return_value=httpx.Response(200, json={"key": "PROJ-1", "fields": {"summary": "S"}})
+        return_value=httpx.Response(
+            200,
+            json={"key": "PROJ-1", "fields": {"summary": "S", "issuetype": {"name": "Epic"}}},
+        )
     )
     epic = await provider.fetch_epic("PROJ-1")
     assert epic.title == "S"
