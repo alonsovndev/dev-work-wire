@@ -14,6 +14,7 @@ from typing import Callable, Optional
 import httpx
 import typer
 from InquirerPy import inquirer
+from InquirerPy.base.control import Choice
 from typer.core import TyperGroup
 
 from devworkwire.config.jira_connection import ResolvedValue
@@ -162,6 +163,7 @@ _LIST_ASSIGNED = "List assigned open work"
 _CREATE_EPIC = "Create epic"
 _CREATE_STORY = "Create story in epic"
 _PREVIEW_FOLDER = "Preview and validate folder"
+_CONFIGURE = "Configure connection and projects"
 _IMPORT_FOLDER = "Import epic and stories from folder"
 _EXIT = "Exit"
 
@@ -187,8 +189,11 @@ _MENU_GROUPS = (
         (MenuOption("7", _IMPORT_FOLDER, _IMPORT_FOLDER),),
     ),
     MenuGroup(
-        "LOCAL", "Check files before\nimporting", "▣", "#b05bff",
-        (MenuOption("8", _PREVIEW_FOLDER, _PREVIEW_FOLDER),),
+        "LOCAL", "Check files and\nmanage settings", "▣", "#b05bff",
+        (
+            MenuOption("8", _PREVIEW_FOLDER, _PREVIEW_FOLDER),
+            MenuOption("9", _CONFIGURE, _CONFIGURE),
+        ),
     ),
 )
 
@@ -955,6 +960,74 @@ def _config_clear(yes: bool) -> bool:
     return True
 
 
+_CONFIG_SHOW = "Show current settings"
+_CONFIG_SETUP = "Set up connection (URL, email, API token)"
+_CONFIG_ADD_PROJECT = "Add a project"
+_CONFIG_SET_DEFAULT = "Choose the default project"
+_CONFIG_REMOVE_PROJECT = "Remove a project"
+_CONFIG_BACK = "Back"
+
+
+def _change_project(action: str, message: str) -> bool:
+    try:
+        projects = container.config_store.list_projects()
+    except Exception as error:
+        typer.echo(f"Error reading projects: {error}", err=True)
+        return True
+    if not projects:
+        typer.echo("No projects configured yet. Add one first.")
+        return True
+    picked = inquirer.select(
+        message=message,
+        choices=[
+            *(Choice(value=project.key, name=f"{project.key}{' (default)' if project.is_default else ''}")
+              for project in projects),
+            Choice(value=None, name=_CONFIG_BACK),
+        ],
+    ).execute()
+    if picked is None:
+        return False
+    _config_projects(action, picked)
+    return True
+
+
+def _configure_menu() -> bool:
+    """Sub-menu mirroring `dwire config`; clearing stays CLI-only because it is destructive.
+
+    Returns False when nothing was shown that needs a "press Enter" pause (Back or Ctrl-C).
+    """
+    try:
+        choice = inquirer.select(
+            message="Configure:",
+            choices=[
+                _CONFIG_SHOW, _CONFIG_SETUP, _CONFIG_ADD_PROJECT,
+                _CONFIG_SET_DEFAULT, _CONFIG_REMOVE_PROJECT, _CONFIG_BACK,
+            ],
+        ).execute()
+        if choice == _CONFIG_BACK:
+            return False
+        if choice == _CONFIG_SHOW:
+            _config_show()
+        elif choice == _CONFIG_SETUP:
+            _config_setup(None, None, None)
+        elif choice == _CONFIG_ADD_PROJECT:
+            key = inquirer.text(message="Project key (e.g. PROJ):").execute()
+            try:
+                normalize_project_key(key)
+            except BusinessRuleViolation as error:
+                typer.echo(f"Error updating projects: {error}", err=True)
+                return True
+            make_default = inquirer.confirm(message="Make it the default project?", default=False).execute()
+            _config_projects("add", key, make_default)
+        elif choice == _CONFIG_SET_DEFAULT:
+            return _change_project("default", "Default project:")
+        elif choice == _CONFIG_REMOVE_PROJECT:
+            return _change_project("remove", "Remove project:")
+        return True
+    except KeyboardInterrupt:
+        return False
+
+
 def _run_interactive_menu() -> None:
     """Keyboard-navigable main menu, shown when `dwire` has no subcommand."""
     while True:
@@ -988,6 +1061,9 @@ def _run_interactive_menu() -> None:
                     message="Folder containing epic.md and optional stories.md:"
                 ).execute()
                 _preview_folder(folder_path)
+            elif choice == _CONFIGURE:
+                if not _configure_menu():
+                    continue
             elif choice == _IMPORT_FOLDER:
                 folder_path = inquirer.text(
                     message="Folder containing epic.md and optional stories.md:"
