@@ -30,6 +30,15 @@ from devworkwire.features.import_.application.folder_state import (
 from devworkwire.presentation.cli.epic_panel import render_epic_panel, render_story_panel
 from devworkwire.presentation.cli.menu_view import MenuGroup, MenuOption, run_menu
 
+# Newer Typer releases bundle their own click copy, so their argument errors
+# are not instances of the installed click package's ClickException.
+try:
+    from typer._click.exceptions import ClickException as _TyperClickException
+    _CLICK_ERRORS: tuple[type[Exception], ...] = (click.ClickException, _TyperClickException)
+except ImportError:
+    _CLICK_ERRORS = (click.ClickException,)
+
+
 class JsonTyperGroup(TyperGroup):
     def main(self, args=None, prog_name=None, standalone_mode=True, **extra):
         arguments = list(args) if args is not None else sys.argv[1:]
@@ -46,7 +55,7 @@ class JsonTyperGroup(TyperGroup):
             outcome = super().main(
                 args=args, prog_name=prog_name, standalone_mode=False, **extra
             )
-        except click.ClickException as error:
+        except _CLICK_ERRORS as error:
             command = next(
                 (argument for argument in arguments if argument in self.commands), None
             )
